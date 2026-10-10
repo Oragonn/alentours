@@ -40,7 +40,7 @@ import {
 } from './lib/folders.js';
 import { exportUserData, importUserData, parseUserDataFile } from './lib/userdata.js';
 import { comparisonTable } from './lib/compare.js';
-import { directionsUrl, distanceKm, pointInGeometry, visitOrder, zonesOverlap } from './lib/geo.js';
+import { directionsUrl, distanceKm, nearGeometry, visitOrder, zonesOverlap } from './lib/geo.js';
 import { budgetCheck, budgetIsSet, formatEuros, PROPERTY_TYPES } from './lib/budget.js';
 import { formatDuration, isochrone, travelTime } from './routing.js';
 import { priceInfo, trendText } from './lib/insights.js';
@@ -195,6 +195,9 @@ const els = {
   briefZone: $('brief-zone'),
   briefZoneList: $('brief-zone-list'),
   briefRayon: $('brief-rayon'),
+  briefPopMin: $('brief-pop-min'),
+  briefPopMax: $('brief-pop-max'),
+  briefTrajet: $('brief-trajet'),
   briefBudget: $('brief-budget'),
   briefSurface: $('brief-surface'),
   briefType: $('brief-type'),
@@ -551,10 +554,10 @@ function runSearch({ fit = false } = {}) {
   renderFilters();
   let filtered = filterByAdmin(areaResults, state);
   if (state.favoritesOnly) filtered = filtered.filter((r) => isFavorite(favorites, r.commune.code));
-  // Trajet max en voiture : communes dont le centre est dans toutes les zones
+  // Trajet max en voiture : communes dont une bonne partie est dans toutes les zones
   ensureDriveZones();
   const zones = driveZonesReady() ? state.driveZones.geoms : null;
-  if (zones) filtered = filtered.filter((r) => zones.every((g) => pointInGeometry(r.commune.lat, r.commune.lon, g)));
+  if (zones) filtered = filtered.filter((r) => zones.every((g) => communeInZone(r.commune, g)));
   // Budget : il faut les prix DVF
   const budgetActive = budgetIsSet(state.budget);
   if ((budgetActive || state.sort.key === 'prix') && !insights.prices && !insights.pricesLoaded) {
@@ -898,6 +901,17 @@ function ensureDriveZones() {
       state.driveError = 'Zone de trajet indisponible (service IGN). Réessayez plus tard.';
       runSearch();
     });
+}
+
+/**
+ * Une commune compte si la zone passe à moins de 15 % de son « rayon » (cercle
+ * de même surface) de son centre, soit environ 40 % de sa surface couverte :
+ * le centre d'une grande ville (Reims, 47 km²) peut être juste hors zone alors
+ * que tout un côté est à 5 min. Sans effet notable pour un petit village.
+ */
+function communeInZone(commune, geometry) {
+  const margin = commune.surface > 0 ? 0.15 * Math.sqrt(commune.surface / Math.PI) : 0;
+  return nearGeometry(commune.lat, commune.lon, geometry, margin);
 }
 
 function renderDriveStatus(points, zones) {
@@ -1250,6 +1264,12 @@ function openBriefForm() {
   els.briefZone.value = briefCity ? communeLabel(briefCity, data.departements) : '';
   const rayon = b.zoneCode ? b.zoneRayon : current?.radius;
   els.briefRayon.value = rayon ? String(rayon).replace('.', ',') : '';
+  // Nouvelle fiche : on part des filtres de la recherche en cours
+  const popMin = folder.fiche ? b.popMin : state.popError ? null : state.popMin;
+  const popMax = folder.fiche ? b.popMax : state.popError ? null : state.popMax;
+  els.briefPopMin.value = popMin ? formatNumber(popMin) : '';
+  els.briefPopMax.value = popMax ? formatNumber(popMax) : '';
+  els.briefTrajet.value = String((folder.fiche ? b.trajetMax : state.driveMax) ?? '');
   els.briefBudget.value = b.budget ? formatNumber(b.budget) : '';
   els.briefSurface.value = b.surface ?? '';
   els.briefType.value = b.type ?? '';
@@ -1297,6 +1317,9 @@ els.briefForm.addEventListener('submit', (e) => {
     zoneCode: els.briefZone.value.trim() && briefCity ? briefCity.code : null,
     zoneNom: briefCity?.nom ?? '',
     zoneRayon: rayon != null ? Math.min(RADIUS.max, Math.max(RADIUS.min, rayon)) : RADIUS.default,
+    popMin: parseIntegerInput(els.briefPopMin.value),
+    popMax: parseIntegerInput(els.briefPopMax.value),
+    trajetMax: Number(els.briefTrajet.value) || null,
     budget: parseIntegerInput(els.briefBudget.value),
     surface: parseIntegerInput(els.briefSurface.value),
     type: els.briefType.value || null,
@@ -1311,8 +1334,14 @@ els.briefApply.addEventListener('click', () => {
   const b = findFolder(folders, state.openFolder)?.fiche;
   const city = b?.zoneCode ? data.byCode.get(b.zoneCode) : null;
   const hasBudget = Boolean(b?.budget && b?.surface);
-  if (!city && !hasBudget) {
-    flash(els.folderFeedback, 'Indiquez une ville de recherche ou un budget avec la surface dans la fiche client.', true);
+  const hasPop = Boolean(b?.popMin || b?.popMax);
+  const hasDrive = Boolean(b?.trajetMax);
+  if (!city && !hasBudget && !hasPop && !hasDrive) {
+    flash(
+      els.folderFeedback,
+      'Indiquez une ville de recherche, une population, un trajet max ou un budget avec la surface dans la fiche client.',
+      true
+    );
     return;
   }
   if (city) {
@@ -1323,6 +1352,15 @@ els.briefApply.addEventListener('click', () => {
     state.active = 0;
     renderPoints();
   }
+  if (hasPop) {
+    els.popMin.value = b.popMin ? formatNumber(b.popMin) : '';
+    els.popMax.value = b.popMax ? formatNumber(b.popMax) : '';
+    readPopulation();
+  }
+  if (hasDrive) {
+    state.driveMax = b.trajetMax;
+    els.driveMax.value = String(b.trajetMax);
+  }
   if (hasBudget) {
     setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
     els.budgetBox.open = true;
@@ -1331,7 +1369,12 @@ els.briefApply.addEventListener('click', () => {
   runSearch({ fit: Boolean(city) });
   ensureInsights();
   if (sheet.isMobile()) sheet.setState('half');
-  const what = [city ? briefZoneLabel(b) : '', hasBudget ? 'budget' : ''].filter(Boolean).join(' et ');
+  const what = listJoin([
+    city ? briefZoneLabel(b) : '',
+    hasPop ? 'population' : '',
+    hasDrive ? `trajet max ${els.driveMax.selectedOptions[0]?.textContent ?? `${b.trajetMax} min`}` : '',
+    hasBudget ? 'budget' : '',
+  ]);
   flash(els.feedback, `Fiche de ${b.client || 'ce dossier'} appliquée : ${what}`);
 });
 
@@ -1825,6 +1868,12 @@ function reportSummary(folder, pts) {
   return searchSummary({ points: pts.map((p) => ({ name: p.name, radius: p.radius })), count }).replace(/résultats?$/, (m) =>
     m === 'résultat' ? 'commune dans la zone' : 'communes dans la zone'
   );
+}
+
+/** « a, b et c » */
+function listJoin(parts) {
+  const list = parts.filter(Boolean);
+  return list.length > 1 ? `${list.slice(0, -1).join(', ')} et ${list.at(-1)}` : list.join('');
 }
 
 const briefZoneLabel = (b) => `${String(b.zoneRayon ?? RADIUS.default).replace('.', ',')} km autour ${deName(b.zoneNom)}`;

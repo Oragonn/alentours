@@ -22,7 +22,23 @@ import {
 export const MAX_FOLDERS = 50;
 
 // Fiche du client (champs facultatifs)
-export const BRIEF_FIELDS = ['client', 'zoneCode', 'zoneNom', 'zoneRayon', 'budget', 'type', 'surface', 'travail', 'criteres'];
+export const BRIEF_FIELDS = [
+  'client',
+  'zoneCode',
+  'zoneNom',
+  'zoneRayon',
+  'popMin',
+  'popMax',
+  'trajetMax',
+  'budget',
+  'type',
+  'surface',
+  'travail',
+  'criteres',
+];
+
+// Trajets max proposés (minutes), comme le filtre de la recherche
+export const BRIEF_DRIVE_TIMES = [15, 20, 30, 45, 60];
 
 /** Nettoie la fiche client d'un dossier. */
 export function cleanBrief(b) {
@@ -32,11 +48,18 @@ export function cleanBrief(b) {
   // Zone de recherche : commune (code INSEE) et rayon en km (1 à 100)
   const zoneCode = typeof b.zoneCode === 'string' && /^[0-9][0-9AB][0-9]{3}$/.test(b.zoneCode) ? b.zoneCode : null;
   const rayon = Number(b.zoneRayon);
+  // Population : bornes facultatives, le minimum ne dépasse pas le maximum
+  let popMin = num(b.popMin);
+  let popMax = num(b.popMax);
+  if (popMin != null && popMax != null && popMin > popMax) [popMin, popMax] = [popMax, popMin];
   const brief = {
     client: text(b.client, 100),
     zoneCode,
     zoneNom: zoneCode ? text(b.zoneNom, 100) : '',
     zoneRayon: zoneCode && Number.isFinite(rayon) && rayon >= 1 && rayon <= 100 ? Math.round(rayon * 10) / 10 : null,
+    popMin,
+    popMax,
+    trajetMax: BRIEF_DRIVE_TIMES.includes(b.trajetMax) ? b.trajetMax : null,
     budget: num(b.budget),
     type: b.type === 'appartement' ? 'appartement' : b.type === 'maison' ? 'maison' : null,
     surface: num(b.surface),

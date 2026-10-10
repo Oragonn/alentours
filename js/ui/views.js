@@ -442,11 +442,30 @@ export function briefZoneText(brief) {
   return `${r} autour ${deName(brief.zoneNom || brief.zoneCode)}`;
 }
 
+/** « 5 000 à 20 000 habitants », « plus de 5 000 habitants »… */
+export function briefPopulationText(brief) {
+  const { popMin: min, popMax: max } = brief ?? {};
+  if (min && max) return `${formatNumber(min)} à ${formatNumber(max)}${NBSP}habitants`;
+  if (min) return `${formatNumber(min)}${NBSP}habitants ou plus`;
+  if (max) return `${formatNumber(max)}${NBSP}habitants ou moins`;
+  return '';
+}
+
+/** « 30 min max en voiture » (depuis la ville de recherche) */
+export function briefDriveText(brief) {
+  const m = brief?.trajetMax;
+  if (!m) return '';
+  return `${m >= 60 ? `${m / 60}${NBSP}h` : `${m}${NBSP}min`} max en voiture${brief.zoneCode ? ` depuis ${brief.zoneNom || brief.zoneCode}` : ''}`;
+}
+
 export function briefCard(brief) {
-  if (!brief) return h('p', { class: 'hint' }, 'Pas encore de fiche client : zone, budget, type de bien, lieux importants, critères…');
+  if (!brief)
+    return h('p', { class: 'hint' }, 'Pas encore de fiche client : zone, population, trajet, budget, type de bien, lieux importants, critères…');
   const rows = [
     ['Client', brief.client],
     ['Zone', briefZoneText(brief)],
+    ['Population', briefPopulationText(brief)],
+    ['Trajet', briefDriveText(brief)],
     ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
     ['Bien', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m²` : ''].filter(Boolean).join(', ')],
     ['Lieux importants', brief.travail],
@@ -683,6 +702,8 @@ export function clientReportContent({ appName, folder, towns, excluded, points, 
     ? [
         ['Client', brief.client],
         ['Zone de recherche', briefZoneText(brief)],
+        ['Taille des communes', briefPopulationText(brief)],
+        ['Temps de trajet', briefDriveText(brief)],
         ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
         ['Bien recherché', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m² minimum` : ''].filter(Boolean).join(', ')],
         ['Lieux importants', brief.travail],

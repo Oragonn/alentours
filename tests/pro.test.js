@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { amenityCounts, amenityList, amenitySummary } from '../js/lib/amenities.js';
 import { budgetCheck, budgetIsSet, formatEuros, priceReliability } from '../js/lib/budget.js';
-import { directionsUrl, pointInGeometry, visitOrder } from '../js/lib/geo.js';
+import { directionsUrl, nearGeometry, pointInGeometry, visitOrder } from '../js/lib/geo.js';
 import {
   addToFolder,
   createFolder,
@@ -58,6 +58,17 @@ test('zone de trajet : point dans un polygone (avec trou) ou multipolygone', () 
   const multi = { type: 'MultiPolygon', coordinates: [square.coordinates, [[[20, 20], [30, 20], [30, 30], [20, 30], [20, 20]]]] };
   assert.equal(pointInGeometry(25, 25, multi), true);
   assert.equal(pointInGeometry(1, 1, null), false);
+});
+
+test('zone de trajet : point proche du bord', () => {
+  // Carré d'environ 1,1 km de côté vers l'équateur
+  const square = { type: 'Polygon', coordinates: [[[0, 0], [0.01, 0], [0.01, 0.01], [0, 0.01], [0, 0]]] };
+  assert.equal(nearGeometry(0.005, 0.005, square, 0), true, 'dedans');
+  assert.equal(nearGeometry(0.005, 0.015, square, 0.5), false, 'à 0,56 km');
+  assert.equal(nearGeometry(0.005, 0.015, square, 0.6), true);
+  assert.equal(nearGeometry(0.015, 0.015, square, 0.6), false, 'coin à 0,79 km');
+  assert.equal(nearGeometry(0.015, 0.015, square, 0.8), true);
+  assert.equal(nearGeometry(0.005, 0.015, null, 10), false);
 });
 
 test('itinéraire de visite : ordre du plus proche voisin et lien Google Maps', () => {
@@ -115,4 +126,22 @@ test('fiche client : zone de recherche (ville + rayon)', async () => {
   assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 500 }).zoneRayon, null);
   assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 12.34 }).zoneRayon, 12.3);
   assert.equal(cleanBrief({ client: 'A', zoneNom: 'Lille' }).zoneNom, '', 'nom sans code ignoré');
+});
+
+test('fiche client : population et trajet max', async () => {
+  const { cleanBrief } = await import('../js/lib/folders.js');
+  const { briefDriveText, briefPopulationText } = await import('../js/ui/views.js');
+  const b = cleanBrief({ popMin: 2000, popMax: 20000, trajetMax: 30, zoneCode: '59350', zoneNom: 'Lille', zoneRayon: 25 });
+  assert.equal(b.popMin, 2000);
+  assert.equal(b.popMax, 20000);
+  assert.equal(b.trajetMax, 30);
+  const swapped = cleanBrief({ popMin: 9000, popMax: 1000 });
+  assert.deepEqual([swapped.popMin, swapped.popMax], [1000, 9000], 'bornes inversées');
+  assert.equal(cleanBrief({ client: 'A', trajetMax: 25 }).trajetMax, null, 'durée hors liste');
+  assert.equal(cleanBrief({ popMin: -5 }), null);
+  assert.equal(briefPopulationText(b), '2 000 à 20 000 habitants');
+  assert.equal(briefPopulationText({ popMax: 500 }), '500 habitants ou moins');
+  assert.equal(briefDriveText(b), '30 min max en voiture depuis Lille');
+  assert.equal(briefDriveText({ trajetMax: 60 }), '1 h max en voiture');
+  assert.equal(briefDriveText({}), '');
 });

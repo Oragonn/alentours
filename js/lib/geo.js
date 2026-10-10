@@ -102,6 +102,36 @@ export function pointInGeometry(lat, lon, geometry) {
 }
 
 /**
+ * Le point est-il dans la géométrie, ou à moins de `km` de son bord ?
+ * (projection locale : suffisant pour quelques kilomètres)
+ */
+export function nearGeometry(lat, lon, geometry, km) {
+  if (pointInGeometry(lat, lon, geometry)) return true;
+  if (!geometry || !(km > 0)) return false;
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
+  const kx = KM_PER_DEGREE * Math.cos(toRad(lat));
+  const ky = KM_PER_DEGREE;
+  const km2 = km * km;
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        // Segment en km, le point étant à l'origine
+        const ax = (ring[j][0] - lon) * kx;
+        const ay = (ring[j][1] - lat) * ky;
+        const dx = (ring[i][0] - lon) * kx - ax;
+        const dy = (ring[i][1] - lat) * ky - ay;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+        const x = ax + t * dx;
+        const y = ay + t * dy;
+        if (x * x + y * y <= km2) return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Ordre de visite : plus proche voisin à partir du point de départ.
  * start : { lat, lon } ou null ; places : [{ lat, lon, ... }]
  */
