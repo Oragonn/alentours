@@ -11,7 +11,7 @@ import {
 } from './config.js';
 import { loadData, loadInsights } from './data.js';
 import { communeLabel, departementLabel, sizeCategory } from './lib/commune.js';
-import { communeColumns, csvFileName, resultsToCsv, toCsv } from './lib/csv.js';
+import { communeColumns, toCsv } from './lib/csv.js';
 import {
   exportFavorites,
   isFavorite,
@@ -103,7 +103,6 @@ const els = {
   sortKey: $('sort-key'),
   sortDir: $('sort-dir'),
   share: $('share-link'),
-  csv: $('export-csv'),
   print: $('print'),
   feedback: $('action-feedback'),
   count: $('results-count'),
@@ -443,7 +442,6 @@ function runSearch({ fit = false } = {}) {
   updateUrl();
 
   const hasResults = points.length > 0 && results.length > 0;
-  els.csv.disabled = !hasResults;
   els.print.disabled = !hasResults;
   els.share.disabled = points.length === 0;
 
@@ -963,15 +961,6 @@ els.share.addEventListener('click', async () => {
   }
   if (await copyText(url)) flash(els.feedback, 'Lien copié');
   else flash(els.feedback, 'Impossible de copier le lien', true);
-});
-
-els.csv.addEventListener('click', async () => {
-  await ensureInsights();
-  const pts = setPoints();
-  const csv = resultsToCsv(results, data, { pointNames: pts.map((p) => p.name), extraColumns: insightColumns() });
-  const name = csvFileName(pts.map((p) => ({ name: p.commune ? p.commune.nom : 'point', radius: p.radius })));
-  downloadFile(name, csv, 'text/csv;charset=utf-8');
-  flash(els.feedback, 'Fichier CSV téléchargé');
 });
 
 function buildPrintView() {
