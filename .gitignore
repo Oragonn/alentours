@@ -3,3 +3,7 @@ node_modules/
 Thumbs.db
 *.log
 .cache/
+
+# Outils locaux (non publiés)
+.chief/
+.claude/
