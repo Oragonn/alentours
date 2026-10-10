@@ -16,4 +16,11 @@
 // Ces valeurs ne sont pas secrètes : elles identifient le projet. La
 // protection des données vient des règles Firestore (firestore.rules).
 
-export const FIREBASE_CONFIG = null;
+export const FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDJWV_xHInqipT90qWyM1OCrBRysrbrKjI',
+  authDomain: 'alentours-3b47a.firebaseapp.com',
+  projectId: 'alentours-3b47a',
+  storageBucket: 'alentours-3b47a.firebasestorage.app',
+  messagingSenderId: '349043959363',
+  appId: '1:349043959363:web:4672275d1c829e0b7d16f6',
+};
