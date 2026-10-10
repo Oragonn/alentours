@@ -70,6 +70,15 @@ Paris, Lyon et Marseille n'apparaissent dans certaines sources que par
 arrondissement : les scripts les regroupent (somme des populations, moyenne
 des prix médians pondérée par le nombre de ventes).
 
+## Avant chaque commit : `npm run stamp`
+
+GitHub Pages laisse les navigateurs garder chaque fichier 10 minutes en
+cache. Pour qu'une nouvelle version ne soit jamais mélangée avec d'anciens
+fichiers, `index.html` référence chaque script, feuille de style et fichier
+de données avec une empreinte de son contenu (`js/app.js?v=…`, via une
+*import map*). `npm run stamp` recalcule ces empreintes ; `npm test` échoue
+s'il a été oublié. `npm run data` le lance automatiquement.
+
 ## Déployer sur GitHub Pages
 
 1. Créez un dépôt sur GitHub et poussez ce dossier (branche `main`), fichiers
@@ -95,8 +104,8 @@ js/app.js           point d'entrée : formulaire, liste, fiche, partage
 js/map.js           carte Leaflet
 js/config.js        nom du site, seuils, valeurs par défaut
 js/lib/             logique pure, testée avec Node (aucun accès au DOM)
-                    (chaque module de js/ doit aussi figurer en
-                    <link rel="modulepreload"> dans index.html : un test le vérifie)
+                    (après toute modification de js/, css/ ou data/ :
+                    « npm run stamp », voir plus bas ; un test le vérifie)
 js/ui/              composants d'interface
 data/               données générées (committées)
 scripts/            scripts de préparation des données

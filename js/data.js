@@ -2,7 +2,19 @@
 
 import { prepareData } from './lib/commune.js';
 
-async function fetchJson(url) {
+// Empreintes des fichiers de données (bloc généré par npm run stamp dans
+// index.html) : une nouvelle version des données n'est jamais lue depuis un
+// ancien cache.
+const VERSIONS = (() => {
+  try {
+    return JSON.parse(document.getElementById('asset-versions')?.textContent || '{}');
+  } catch {
+    return {};
+  }
+})();
+
+async function fetchJson(path) {
+  const url = VERSIONS[path] ? `${path}?v=${VERSIONS[path]}` : path;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`${url} : HTTP ${res.status}`);
   return res.json();

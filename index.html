@@ -21,29 +21,32 @@
   </script>
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="modulepreload" href="js/app.js">
-  <!-- Tous les modules : évite une cascade de requêtes (à tenir à jour) -->
-  <link rel="modulepreload" href="js/config.js">
-  <link rel="modulepreload" href="js/data.js">
-  <link rel="modulepreload" href="js/lib/commune.js">
-  <link rel="modulepreload" href="js/lib/csv.js">
-  <link rel="modulepreload" href="js/lib/favorites.js">
-  <link rel="modulepreload" href="js/lib/geo.js">
-  <link rel="modulepreload" href="js/lib/insights.js">
-  <link rel="modulepreload" href="js/lib/search.js">
-  <link rel="modulepreload" href="js/lib/sort.js">
-  <link rel="modulepreload" href="js/lib/suggest.js">
-  <link rel="modulepreload" href="js/lib/summary.js">
-  <link rel="modulepreload" href="js/lib/text.js">
-  <link rel="modulepreload" href="js/lib/url.js">
-  <link rel="modulepreload" href="js/map.js">
-  <link rel="modulepreload" href="js/storage.js">
-  <link rel="modulepreload" href="js/theme.js">
-  <link rel="modulepreload" href="js/ui/autocomplete.js">
-  <link rel="modulepreload" href="js/ui/dom.js">
-  <link rel="modulepreload" href="js/ui/sheet.js">
-  <link rel="modulepreload" href="js/ui/views.js">
+  <!-- assets:start : généré par « npm run stamp », ne pas modifier à la main -->
+  <link rel="stylesheet" href="css/style.css?v=f665f1d270">
+  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=4a7bcbed23","./js/config.js":"./js/config.js?v=14831fbf8c","./js/data.js":"./js/data.js?v=a19261109e","./js/map.js":"./js/map.js?v=ddab6e26a3","./js/storage.js":"./js/storage.js?v=7082ddbf7e","./js/theme.js":"./js/theme.js?v=a1237f8f04","./js/lib/commune.js":"./js/lib/commune.js?v=0e879387da","./js/lib/csv.js":"./js/lib/csv.js?v=2c7997fe47","./js/lib/favorites.js":"./js/lib/favorites.js?v=25156b0d9b","./js/lib/geo.js":"./js/lib/geo.js?v=641e3a86d9","./js/lib/insights.js":"./js/lib/insights.js?v=3b0acd6f27","./js/lib/search.js":"./js/lib/search.js?v=9bc058e9a9","./js/lib/sort.js":"./js/lib/sort.js?v=58f221c5b2","./js/lib/suggest.js":"./js/lib/suggest.js?v=9da41d9446","./js/lib/summary.js":"./js/lib/summary.js?v=94d62a56cf","./js/lib/text.js":"./js/lib/text.js?v=b8b73e5cd4","./js/lib/url.js":"./js/lib/url.js?v=0d1cad7ac0","./js/ui/autocomplete.js":"./js/ui/autocomplete.js?v=4547dc3483","./js/ui/dom.js":"./js/ui/dom.js?v=c966c28639","./js/ui/sheet.js":"./js/ui/sheet.js?v=f1322cd9ab","./js/ui/views.js":"./js/ui/views.js?v=f201d889a5"}}</script>
+  <script type="application/json" id="asset-versions">{"data/communes.json":"7f5514fb29","data/departements.json":"3399925b09","data/regions.json":"bf213e3a54","data/population-trend.json":"1fb5089648","data/prix.json":"8720e5246b"}</script>
+  <link rel="modulepreload" href="js/app.js?v=4a7bcbed23">
+  <link rel="modulepreload" href="js/config.js?v=14831fbf8c">
+  <link rel="modulepreload" href="js/data.js?v=a19261109e">
+  <link rel="modulepreload" href="js/map.js?v=ddab6e26a3">
+  <link rel="modulepreload" href="js/storage.js?v=7082ddbf7e">
+  <link rel="modulepreload" href="js/theme.js?v=a1237f8f04">
+  <link rel="modulepreload" href="js/lib/commune.js?v=0e879387da">
+  <link rel="modulepreload" href="js/lib/csv.js?v=2c7997fe47">
+  <link rel="modulepreload" href="js/lib/favorites.js?v=25156b0d9b">
+  <link rel="modulepreload" href="js/lib/geo.js?v=641e3a86d9">
+  <link rel="modulepreload" href="js/lib/insights.js?v=3b0acd6f27">
+  <link rel="modulepreload" href="js/lib/search.js?v=9bc058e9a9">
+  <link rel="modulepreload" href="js/lib/sort.js?v=58f221c5b2">
+  <link rel="modulepreload" href="js/lib/suggest.js?v=9da41d9446">
+  <link rel="modulepreload" href="js/lib/summary.js?v=94d62a56cf">
+  <link rel="modulepreload" href="js/lib/text.js?v=b8b73e5cd4">
+  <link rel="modulepreload" href="js/lib/url.js?v=0d1cad7ac0">
+  <link rel="modulepreload" href="js/ui/autocomplete.js?v=4547dc3483">
+  <link rel="modulepreload" href="js/ui/dom.js?v=c966c28639">
+  <link rel="modulepreload" href="js/ui/sheet.js?v=f1322cd9ab">
+  <link rel="modulepreload" href="js/ui/views.js?v=f201d889a5">
+  <!-- assets:end -->
 </head>
 <body>
   <a class="skip-link" href="#q-0">Aller à la recherche</a>
@@ -185,7 +188,31 @@
 
   <section id="print-view" class="print-view" aria-hidden="true"></section>
 
+  <script>
+    // Filet de sécurité : si le script principal ne démarre pas (fichiers d'une
+    // ancienne version en cache, réseau coupé…), on propose de recharger.
+    (function () {
+      function fail() {
+        if (document.documentElement.hasAttribute('data-app-started')) return;
+        var count = document.getElementById('results-count');
+        var box = document.getElementById('data-status');
+        if (!count || !box || box.getAttribute('data-failed')) return;
+        count.textContent = 'Le chargement a échoué';
+        box.setAttribute('data-failed', '1');
+        box.className = 'data-status error';
+        box.hidden = false;
+        box.innerHTML = '<span>Le site n’a pas pu démarrer. Rechargez la page.</span>' +
+          '<button type="button" class="btn btn-primary">Recharger</button>';
+        box.querySelector('button').onclick = function () { location.reload(); };
+      }
+      window.addEventListener('error', function (e) {
+        // Script introuvable, ou erreur pendant le démarrage du script principal
+        if (e instanceof ErrorEvent || (e.target && e.target.tagName === 'SCRIPT')) setTimeout(fail, 0);
+      }, true);
+      setTimeout(fail, 20000);
+    })();
+  </script>
   <script src="vendor/leaflet-1.9.4/leaflet.js" defer></script>
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=4a7bcbed23"></script>
 </body>
 </html>

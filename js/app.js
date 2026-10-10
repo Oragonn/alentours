@@ -1103,4 +1103,6 @@ function ensureInsights() {
 els.addPoint.addEventListener('click', addPoint);
 renderPoints();
 renderSortDir();
+// Le filet de sécurité d'index.html sait ainsi que le script a démarré
+document.documentElement.setAttribute('data-app-started', '');
 start();
