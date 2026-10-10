@@ -72,5 +72,7 @@ export const STORAGE_KEYS = {
   mapStyle: 'alentours.carte',
   rings: 'alentours.cercles',
   favorites: 'alentours.favoris.v1',
+  folders: 'alentours.dossiers.v1',
+  notesMigrated: 'alentours.notes-dossiers',
   sync: 'alentours.sync',
 };

@@ -133,7 +133,7 @@ index.html          page unique
 css/style.css       styles (thèmes clair/sombre, impression)
 js/app.js           point d'entrée : formulaire, liste, fiche, partage
 js/map.js           carte Leaflet
-js/sync.js          synchronisation des favoris (Firebase, facultative)
+js/sync.js          synchronisation des favoris et dossiers (Firebase, facultative)
 js/firebase-config.js  configuration Firebase (null = désactivée)
 firestore.rules     règles de sécurité de la base Firestore
 js/config.js        nom du site, seuils, valeurs par défaut

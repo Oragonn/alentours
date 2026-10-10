@@ -28,11 +28,11 @@ export function bestIndexes(values, best) {
  *   prices       (code) → entrée DVF ou null ; pricesMeta : { periode }
  *   points       [{ name, lat, lon }] points de départ de la recherche
  *   distanceKm   (lat1, lon1, lat2, lon2) → km
- *   notes        (code) → note personnelle
+ *   notes        (code) → note personnelle (facultatif : ligne « Note » si fourni)
  * Renvoie { columns: [{ code, nom, dep }], rows: [{ key, label, cells: [{ text }], best }] }
  * où best = indices des cellules mises en avant.
  */
-export function comparisonTable(communes, { data, trendSeries, prices, pricesMeta = {}, points = [], distanceKm, notes = () => '' }) {
+export function comparisonTable(communes, { data, trendSeries, prices, pricesMeta = {}, points = [], distanceKm, notes = null }) {
   const rows = [];
   const add = (key, label, cells, best = null) => {
     rows.push({ key, label, cells, best: bestIndexes(cells.map((c) => c.value), best) });
@@ -105,7 +105,7 @@ export function comparisonTable(communes, { data, trendSeries, prices, pricesMet
     );
   }
 
-  add('note', 'Note personnelle', communes.map((c) => cell(notes(c.code) || '—')));
+  if (notes) add('note', 'Note personnelle', communes.map((c) => cell(notes(c.code) || '—')));
 
   return { columns: communes.map((c) => ({ code: c.code, nom: c.nom, dep: c.dep })), rows };
 }

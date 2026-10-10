@@ -13,18 +13,28 @@ import { loadData, loadInsights } from './data.js';
 import { communeLabel, departementLabel, sizeCategory } from './lib/commune.js';
 import { communeColumns, toCsv } from './lib/csv.js';
 import {
-  exportFavorites,
   isFavorite,
-  mergeFavorites,
-  parseFavoritesFile,
   readStoredFavorites,
   removeFavorite,
-  replaceFavorites,
-  setNote,
   toggleFavorite,
   visibleFavorites,
   toStoredFavorites,
 } from './lib/favorites.js';
+import {
+  addToFolder,
+  cleanFolders,
+  createFolder,
+  deleteFolder,
+  findFolder,
+  folderCities,
+  foldersContaining,
+  migrateFavoriteNotes,
+  removeFromFolder,
+  renameFolder,
+  setFolderNote,
+  visibleFolders,
+} from './lib/folders.js';
+import { exportUserData, importUserData, parseUserDataFile } from './lib/userdata.js';
 import { comparisonTable } from './lib/compare.js';
 import { distanceKm, zonesOverlap } from './lib/geo.js';
 import { priceInfo, trendText } from './lib/insights.js';
@@ -47,6 +57,8 @@ import {
   detailsContent,
   favoriteRow,
   favoritesPrintContent,
+  folderCityRow,
+  folderRow,
   printContent,
   resultRow,
 } from './ui/views.js';
@@ -80,6 +92,8 @@ const state = {
   rings: load(STORAGE_KEYS.rings) === '1',
   view: 'results',
   favoritesOnly: false,
+  openFolder: null,
+  pickerCode: null,
   compare: new Set(),
   selected: null,
   shown: LIST_PAGE_SIZE,
@@ -89,6 +103,7 @@ let areaResults = [];
 let results = [];
 let resultIndex = new Map();
 let favorites = readStoredFavorites(loadJson(STORAGE_KEYS.favorites));
+let folders = cleanFolders(loadJson(STORAGE_KEYS.folders)?.dossiers);
 let sync = null;
 let lastFocus = null;
 let sheetBeforeDetails = null;
@@ -147,6 +162,33 @@ const els = {
   importReplace: $('import-replace'),
   importCancel: $('import-cancel'),
   favoritesOnly: $('favorites-only'),
+  tabFolders: $('tab-folders'),
+  viewFolders: $('view-folders'),
+  foldersCount: $('folders-count'),
+  foldersHome: $('folders-home'),
+  folderCreate: $('folder-create'),
+  folderName: $('folder-name'),
+  foldersEmpty: $('folders-empty'),
+  foldersList: $('folders-list'),
+  foldersPrintAll: $('folders-print-all'),
+  folderDetail: $('folder-detail'),
+  folderBack: $('folder-back'),
+  folderTitle: $('folder-title'),
+  folderRename: $('folder-rename'),
+  folderRenameForm: $('folder-rename-form'),
+  folderRenameInput: $('folder-rename-input'),
+  folderRenameCancel: $('folder-rename-cancel'),
+  folderPrint: $('folder-print'),
+  folderDelete: $('folder-delete'),
+  folderEmpty: $('folder-empty'),
+  folderCitiesList: $('folder-cities'),
+  picker: $('folder-picker'),
+  pickerCity: $('picker-city'),
+  pickerList: $('picker-list'),
+  pickerCreate: $('picker-create'),
+  pickerName: $('picker-name'),
+  pickerClose: $('picker-close'),
+  pickerDone: $('picker-done'),
   favoritesTools: $('favorites-tools'),
   compareOpen: $('compare-open'),
   compareHint: $('compare-hint'),
@@ -504,8 +546,10 @@ function renderList() {
         pointNames: names,
         selected: r.commune.code === state.selected,
         isFav: isFavorite(favorites, r.commune.code),
+        folderCount: foldersContaining(folders, r.commune.code).length,
         onOpen: (code) => openDetails(code, 'list'),
         onToggleFav: (code) => toggleFav(code),
+        onFolders: (code) => openPicker(code),
       })
     );
   }
@@ -681,9 +725,11 @@ function renderDetails(code) {
       result: resultFor(commune),
       pointNames: pointNames(),
       isFav: isFavorite(favorites, code),
+      folderCount: foldersContaining(folders, code).length,
       insights,
       onClose: closeDetails,
       onToggleFav: () => toggleFav(code),
+      onFolders: () => openPicker(code),
       onSearchAround: () => searchAround(code),
     })
   );
@@ -738,7 +784,8 @@ function closeDetails() {
 }
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !els.details.hidden) {
+  // Une fenêtre (dossiers, comparaison) ouverte se ferme d'abord toute seule
+  if (e.key === 'Escape' && !els.details.hidden && !document.querySelector('dialog[open]')) {
     e.preventDefault();
     closeDetails();
   }
@@ -749,17 +796,23 @@ document.addEventListener('keydown', (e) => {
 /** Enregistre les favoris sur l'appareil (et les envoie en ligne si connecté). */
 function saveFavorites({ fromSync = false } = {}) {
   saveJson(STORAGE_KEYS.favorites, toStoredFavorites(favorites));
+  saveJson(STORAGE_KEYS.folders, { version: 1, dossiers: folders });
   const n = visibleFavorites(favorites).length;
   els.favCount.textContent = n ? String(n) : '';
+  const f = visibleFolders(folders).length;
+  els.foldersCount.textContent = f ? String(f) : '';
   if (!fromSync) sync?.notifyLocalChange();
 }
 
 /** Favoris reçus d'un autre appareil : mise à jour de l'affichage. */
-function applySyncedFavorites(items) {
+function applySyncedFavorites({ items, dossiers }) {
   favorites = items;
+  folders = dossiers;
   saveFavorites({ fromSync: true });
   favoritesChanged();
   if (state.view === 'favorites') renderFavorites();
+  if (state.view === 'folders') renderFolders();
+  if (els.picker.open) renderPicker();
   if (state.selected && !els.details.hidden) renderDetails(state.selected);
 }
 
@@ -810,11 +863,6 @@ function renderFavorites() {
   els.compareOpen.textContent = n ? `Comparer (${n})` : 'Comparer';
   els.compareHint.textContent =
     n >= 5 ? '5 favoris au maximum.' : 'Cochez « Comparer » sur 2 à 5 favoris pour les voir côte à côte.';
-  // Une note en cours de saisie ne doit pas être perdue si la liste est
-  // redessinée (par exemple à l'arrivée de favoris d'un autre appareil)
-  const editing = document.activeElement?.closest?.('#favorites-list li');
-  const editingCode = editing?.dataset.code;
-  const editingField = editing ? document.activeElement : null;
   const rows = visible.map((item) => {
     const li = favoriteRow(item, data?.byCode.get(item.code), {
       data,
@@ -826,10 +874,8 @@ function renderFavorites() {
         favoritesChanged();
         if (state.selected === code && !els.details.hidden) renderDetails(code);
       },
-      onNote: (code, note) => {
-        favorites = setNote(favorites, code, note);
-        saveFavorites();
-      },
+      folderCount: foldersContaining(folders, item.code).length,
+      onFolders: (code) => openPicker(code),
       selected: state.compare.has(item.code),
       selectDisabled: state.compare.size >= 5,
       onSelect: (code, on) => {
@@ -840,52 +886,231 @@ function renderFavorites() {
       },
       onSearchAround: (code) => searchAround(code),
     });
-    const textarea = li.querySelector('textarea');
-    textarea.value = item.code === editingCode && editingField?.tagName === 'TEXTAREA' ? editingField.value : item.note;
     return li;
   });
   els.favList.replaceChildren(...rows);
-  if (editingCode && editingField?.tagName === 'TEXTAREA') {
-    const field = els.favList.querySelector(`li[data-code="${editingCode}"] textarea`);
-    if (field) {
-      field.focus({ preventScroll: true });
-      field.setSelectionRange(editingField.selectionStart, editingField.selectionEnd);
-    }
-  }
   const communes = visible.map((f) => data?.byCode.get(f.code)).filter(Boolean);
   mapView.showFavorites(communes);
   return communes;
 }
 
-function setView(view) {
-  state.view = view;
-  const fav = view === 'favorites';
-  els.tabResults.setAttribute('aria-selected', String(!fav));
-  els.tabFavorites.setAttribute('aria-selected', String(fav));
-  els.tabResults.tabIndex = fav ? -1 : 0;
-  els.tabFavorites.tabIndex = fav ? 0 : -1;
-  els.viewResults.hidden = fav;
-  els.viewFavorites.hidden = !fav;
-  if (fav) {
-    const communes = renderFavorites();
-    if (!setPoints().length && communes.length) mapView.fitCommunes(communes);
-  } else {
+// ---- Dossiers --------------------------------------------------------------
+
+function renderFolders() {
+  const list = visibleFolders(folders);
+  const folder = state.openFolder ? findFolder(folders, state.openFolder) : null;
+  if (state.openFolder && !folder) state.openFolder = null; // supprimé (autre appareil)
+  els.foldersHome.hidden = Boolean(folder);
+  els.folderDetail.hidden = !folder;
+  if (!folder) {
+    els.foldersEmpty.hidden = list.length > 0;
+    els.foldersPrintAll.hidden = list.length === 0;
+    els.foldersList.replaceChildren(
+      ...list.map((f) => folderRow(f, folderCities(f).length, { onOpen: (id) => openFolder(id) }))
+    );
     mapView.hideFavorites();
+    return [];
   }
+  els.folderTitle.textContent = folder.nom;
+  const cities = folderCities(folder);
+  els.folderEmpty.hidden = cities.length > 0;
+  // Une note en cours de saisie ne doit pas être perdue si la liste est
+  // redessinée (par exemple à l'arrivée de données d'un autre appareil)
+  const editing = document.activeElement?.closest?.('#folder-cities li');
+  const editingCode = editing?.dataset.code;
+  const editingField = editing && document.activeElement.tagName === 'TEXTAREA' ? document.activeElement : null;
+  const rows = cities.map((item) => {
+    const li = folderCityRow(item, data?.byCode.get(item.code), {
+      data,
+      folderId: folder.id,
+      onOpen: (code) => openDetails(code, 'fav'),
+      onRemove: (code) => {
+        folders = removeFromFolder(folders, folder.id, code);
+        saveFavorites();
+        renderFolders();
+        renderList();
+        if (state.selected === code && !els.details.hidden) renderDetails(code);
+      },
+      onNote: (code, note) => {
+        folders = setFolderNote(folders, folder.id, code, note);
+        saveFavorites();
+      },
+      onSearchAround: (code) => searchAround(code),
+    });
+    li.querySelector('textarea').value = item.code === editingCode && editingField ? editingField.value : item.note;
+    return li;
+  });
+  els.folderCitiesList.replaceChildren(...rows);
+  if (editingCode && editingField) {
+    const field = els.folderCitiesList.querySelector(`li[data-code="${editingCode}"] textarea`);
+    if (field) {
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(editingField.selectionStart, editingField.selectionEnd);
+    }
+  }
+  const communes = cities.map((c) => data?.byCode.get(c.code)).filter(Boolean);
+  mapView.showFavorites(communes, 'folder');
+  return communes;
 }
 
-els.tabResults.addEventListener('click', () => setView('results'));
-els.tabFavorites.addEventListener('click', () => setView('favorites'));
-for (const tab of [els.tabResults, els.tabFavorites]) {
-  tab.addEventListener('keydown', (e) => {
+function openFolder(id) {
+  state.openFolder = id;
+  els.folderRenameForm.hidden = true;
+  const communes = renderFolders();
+  if (communes.length) mapView.fitCommunes(communes);
+  els.folderTitle.focus({ preventScroll: true });
+}
+
+function closeFolder() {
+  const id = state.openFolder;
+  state.openFolder = null;
+  renderFolders();
+  els.foldersList.querySelector(`li[data-id="${id}"] button`)?.focus({ preventScroll: true });
+}
+
+els.folderCreate.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const result = createFolder(folders, els.folderName.value);
+  if (!result.id) {
+    els.folderName.focus();
+    return;
+  }
+  folders = result.folders;
+  els.folderName.value = '';
+  saveFavorites();
+  openFolder(result.id);
+});
+
+els.folderBack.addEventListener('click', closeFolder);
+
+els.folderRename.addEventListener('click', () => {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  els.folderRenameForm.hidden = false;
+  els.folderRenameInput.value = folder.nom;
+  els.folderRenameInput.focus();
+  els.folderRenameInput.select();
+});
+els.folderRenameCancel.addEventListener('click', () => {
+  els.folderRenameForm.hidden = true;
+  els.folderRename.focus();
+});
+els.folderRenameForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  folders = renameFolder(folders, state.openFolder, els.folderRenameInput.value);
+  els.folderRenameForm.hidden = true;
+  saveFavorites();
+  renderFolders();
+  els.folderTitle.focus({ preventScroll: true });
+});
+
+els.folderDelete.addEventListener('click', () => {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  if (!window.confirm(`Supprimer le dossier « ${folder.nom} » et ses notes ?`)) return;
+  folders = deleteFolder(folders, folder.id);
+  saveFavorites();
+  closeFolder();
+  renderList();
+});
+
+// ---- Fenêtre « Ranger dans un dossier » ------------------------------------
+
+function renderPicker() {
+  const code = state.pickerCode;
+  const commune = data?.byCode.get(code);
+  if (!commune) return;
+  els.pickerCity.textContent = commune.nom + (data.departements[commune.dep] ? ` (${data.departements[commune.dep]})` : '');
+  const list = visibleFolders(folders);
+  const inside = new Set(foldersContaining(folders, code));
+  els.pickerList.replaceChildren(
+    ...(list.length
+      ? list.map((f) => {
+          const input = h('input', { type: 'checkbox', value: f.id });
+          input.checked = inside.has(f.id);
+          input.addEventListener('change', () => {
+            folders = input.checked ? addToFolder(folders, f.id, commune) : removeFromFolder(folders, f.id, code);
+            saveFavorites();
+            folderMembershipChanged(code);
+            renderPicker();
+            els.pickerList.querySelector(`input[value="${f.id}"]`)?.focus();
+          });
+          const n = folderCities(f).length;
+          return h('label', {}, input, h('span', {}, f.nom), h('span', { class: 'count' }, `${n} commune${n > 1 ? 's' : ''}`));
+        })
+      : [h('p', { class: 'empty' }, 'Aucun dossier : créez-en un ci-dessous.')])
+  );
+}
+
+function openPicker(code) {
+  if (!data?.byCode.get(code)) return;
+  state.pickerCode = code;
+  els.pickerName.value = '';
+  renderPicker();
+  els.picker.showModal();
+  (els.pickerList.querySelector('input') ?? els.pickerName).focus();
+}
+
+/** Après un ajout ou un retrait : liste, fiche et onglet Dossiers à jour. */
+function folderMembershipChanged(code) {
+  renderList();
+  if (state.view === 'favorites') renderFavorites();
+  if (state.view === 'folders') renderFolders();
+  if (state.selected === code && !els.details.hidden) renderDetails(code);
+}
+
+els.pickerCreate.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const commune = data?.byCode.get(state.pickerCode);
+  const result = createFolder(folders, els.pickerName.value);
+  if (!result.id || !commune) {
+    els.pickerName.focus();
+    return;
+  }
+  folders = addToFolder(result.folders, result.id, commune);
+  els.pickerName.value = '';
+  saveFavorites();
+  folderMembershipChanged(commune.code);
+  renderPicker();
+  els.pickerList.querySelector(`input[value="${result.id}"]`)?.focus();
+});
+els.pickerClose.addEventListener('click', () => els.picker.close());
+els.pickerDone.addEventListener('click', () => els.picker.close());
+els.picker.addEventListener('click', (e) => {
+  if (e.target === els.picker) els.picker.close();
+});
+
+const TABS = [
+  ['results', () => els.tabResults, () => els.viewResults],
+  ['favorites', () => els.tabFavorites, () => els.viewFavorites],
+  ['folders', () => els.tabFolders, () => els.viewFolders],
+];
+
+function setView(view) {
+  state.view = view;
+  for (const [name, tab, panel] of TABS) {
+    tab().setAttribute('aria-selected', String(name === view));
+    tab().tabIndex = name === view ? 0 : -1;
+    panel().hidden = name !== view;
+  }
+  let communes = [];
+  if (view === 'favorites') communes = renderFavorites();
+  else if (view === 'folders') communes = renderFolders();
+  else mapView.hideFavorites();
+  if (!setPoints().length && communes.length) mapView.fitCommunes(communes);
+}
+
+TABS.forEach(([name, tab], i) => {
+  tab().addEventListener('click', () => setView(name));
+  tab().addEventListener('keydown', (e) => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
       e.preventDefault();
-      const next = tab === els.tabResults ? els.tabFavorites : els.tabResults;
+      const next = TABS[(i + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length][1]();
       next.focus();
       next.click();
     }
   });
-}
+});
 
 function insightColumns() {
   const cols = [];
@@ -909,8 +1134,12 @@ function insightColumns() {
 }
 
 els.favExport.addEventListener('click', () => {
-  downloadFile('alentours-favoris.json', JSON.stringify(exportFavorites(favorites), null, 2), 'application/json');
-  flash(els.favFeedback, 'Favoris exportés');
+  downloadFile(
+    'alentours-favoris.json',
+    JSON.stringify(exportUserData({ items: favorites, dossiers: folders }), null, 2),
+    'application/json'
+  );
+  flash(els.favFeedback, 'Favoris et dossiers exportés');
 });
 
 els.favExportCsv.addEventListener('click', async () => {
@@ -928,7 +1157,7 @@ els.favExportCsv.addEventListener('click', async () => {
     },
     ...insightColumns(),
   ].map((col) => ({ header: col.header, value: (r) => col.value(r.commune) }));
-  const columns = [...base, ...extra, { header: 'Note', value: (r) => r.fav.note }];
+  const columns = [...base, ...extra];
   downloadFile('alentours-favoris.csv', toCsv(rows, columns), 'text/csv;charset=utf-8');
   flash(els.favFeedback, 'Favoris exportés en CSV');
 });
@@ -945,28 +1174,35 @@ els.favFile.addEventListener('change', async () => {
   } catch {
     text = '';
   }
-  const parsed = parseFavoritesFile(text);
+  const parsed = parseUserDataFile(text);
   if (!parsed.ok) {
     els.importChoice.hidden = true;
     flash(els.favFeedback, 'Fichier invalide', true);
     return;
   }
-  pendingImport = parsed.items;
+  pendingImport = parsed;
   const n = parsed.items.length;
-  els.importText.textContent = `${n} ${n > 1 ? 'favoris' : 'favori'} dans le fichier. Que faire de vos ${visibleFavorites(favorites).length} favoris actuels ?`;
+  const d = parsed.dossiers.length;
+  els.importText.textContent =
+    `Le fichier contient ${n} favori${n > 1 ? 's' : ''} et ${d} dossier${d > 1 ? 's' : ''}. ` +
+    `Vous avez actuellement ${visibleFavorites(favorites).length} favori(s) et ${visibleFolders(folders).length} dossier(s).`;
   els.importChoice.hidden = false;
   els.importMerge.focus();
 });
 
 function finishImport(mode) {
   if (!pendingImport) return;
-  favorites = mode === 'replace' ? replaceFavorites(favorites, pendingImport) : mergeFavorites(favorites, pendingImport);
+  const result = importUserData({ items: favorites, dossiers: folders }, pendingImport, mode);
+  // Notes d'un ancien fichier (version 1) : rangées dans « Mes notes »
+  const migrated = migrateFavoriteNotes(result.items, result.dossiers);
+  favorites = migrated.favorites;
+  folders = migrated.folders;
   pendingImport = null;
   els.importChoice.hidden = true;
   saveFavorites();
   renderFavorites();
   renderList();
-  flash(els.favFeedback, mode === 'replace' ? 'Favoris remplacés' : 'Favoris fusionnés');
+  flash(els.favFeedback, mode === 'replace' ? 'Favoris et dossiers remplacés' : 'Favoris et dossiers fusionnés');
 }
 
 els.importMerge.addEventListener('click', () => finishImport('merge'));
@@ -1001,7 +1237,7 @@ function renderSyncState({ status, user, error }) {
 function initSync() {
   sync = createSync({
     config: FIREBASE_CONFIG,
-    getLocal: () => favorites,
+    getLocal: () => ({ items: favorites, dossiers: folders }),
     setLocal: applySyncedFavorites,
     onState: renderSyncState,
     flag: { get: () => load(STORAGE_KEYS.sync), set: (v) => save(STORAGE_KEYS.sync, v) },
@@ -1093,14 +1329,32 @@ els.share.addEventListener('click', async () => {
   else flash(els.feedback, 'Impossible de copier le lien', true);
 });
 
+/** Fiches imprimables pour une liste de favoris ou de villes d'un dossier. */
+function printItems(list) {
+  return list
+    .map((fav) => ({ fav, commune: data.byCode.get(fav.code) }))
+    .filter((it) => it.commune)
+    .map((it) => ({ ...it, result: resultFor(it.commune) }));
+}
+
 function buildPrintView() {
+  const common = { appName: APP_NAME, data, insights, pointNames: data ? pointNames() : [] };
   if (data && state.view === 'favorites') {
-    const items = visibleFavorites(favorites)
-      .map((fav) => ({ fav, commune: data.byCode.get(fav.code) }))
-      .filter((it) => it.commune)
-      .map((it) => ({ ...it, result: resultFor(it.commune) }));
     els.printView.replaceChildren(
-      ...favoritesPrintContent({ appName: APP_NAME, items, data, insights, pointNames: pointNames() })
+      ...favoritesPrintContent({ ...common, title: 'mes favoris', sections: [{ items: printItems(visibleFavorites(favorites)) }] })
+    );
+    return;
+  }
+  if (data && state.view === 'folders') {
+    const open = state.openFolder ? findFolder(folders, state.openFolder) : null;
+    const list = open ? [open] : visibleFolders(folders);
+    els.printView.replaceChildren(
+      ...favoritesPrintContent({
+        ...common,
+        title: open ? `dossier « ${open.nom} »` : 'mes dossiers',
+        sections: list.map((f) => ({ title: open ? null : f.nom, items: printItems(folderCities(f)) })),
+        withNotes: true,
+      })
     );
     return;
   }
@@ -1127,6 +1381,14 @@ els.print.addEventListener('click', async () => {
 });
 window.addEventListener('beforeprint', buildPrintView);
 
+for (const button of [els.folderPrint, els.foldersPrintAll]) {
+  button.addEventListener('click', async () => {
+    await ensureInsights();
+    buildPrintView();
+    window.print();
+  });
+}
+
 els.favoritesPrint.addEventListener('click', async () => {
   await ensureInsights();
   buildPrintView();
@@ -1146,7 +1408,6 @@ async function openComparison() {
     pricesMeta: insights.pricesMeta ?? {},
     points: setPoints().map((p) => ({ name: p.commune ? p.commune.nom : 'le point', lat: p.lat, lon: p.lon })),
     distanceKm,
-    notes: (code) => favorites.find((f) => f.code === code)?.note ?? '',
   });
   els.compareBody.replaceChildren(comparisonTableElement(table));
   els.compareDialog.showModal();
@@ -1236,6 +1497,12 @@ async function start() {
   applyUrlState();
   renderPoints();
   renderSortDir();
+  if (load(STORAGE_KEYS.notesMigrated) !== '1') {
+    const migrated = migrateFavoriteNotes(favorites, folders);
+    favorites = migrated.favorites;
+    folders = migrated.folders;
+    save(STORAGE_KEYS.notesMigrated, '1');
+  }
   saveFavorites({ fromSync: true });
   initSync();
   const hadPoints = setPoints().length > 0;

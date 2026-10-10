@@ -11,9 +11,11 @@ service cloud.firestore {
       allow read, delete: if request.auth != null && request.auth.uid == uid;
       allow create, update: if request.auth != null
         && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['version', 'items', 'modifie'])
+        && request.resource.data.keys().hasOnly(['version', 'items', 'dossiers', 'modifie'])
         && request.resource.data.items is list
-        && request.resource.data.items.size() <= 2000;
+        && request.resource.data.items.size() <= 2000
+        && (!('dossiers' in request.resource.data)
+            || (request.resource.data.dossiers is list && request.resource.data.dossiers.size() <= 200));
     }
   }
 }

@@ -101,7 +101,7 @@ function fakeCloud() {
           return () => watchers.get(uid).delete(onData);
         },
         async update(uid, fn) {
-          const items = fn(structuredClone(docs.get(uid) ?? []));
+          const items = fn(structuredClone(docs.get(uid) ?? { items: [], dossiers: [] }));
           docs.set(uid, structuredClone(items));
           queueMicrotask(() => notify(uid));
           return items;
@@ -115,8 +115,8 @@ function fakeCloud() {
   };
 }
 
-function makeDevice(cloud, initial = []) {
-  let local = initial;
+function makeDevice(cloud, initial = [], initialFolders = []) {
+  let local = { items: initial, dossiers: initialFolders };
   const states = [];
   const adapter = cloud.device();
   let flag = '0';
@@ -133,10 +133,17 @@ function makeDevice(cloud, initial = []) {
     sync,
     states,
     get local() {
-      return local;
+      return local.items;
+    },
+    get folders() {
+      return local.dossiers;
     },
     change(fn) {
-      local = fn(local);
+      local = { ...local, items: fn(local.items) };
+      sync.notifyLocalChange();
+    },
+    changeFolders(fn) {
+      local = { ...local, dossiers: fn(local.dossiers) };
       sync.notifyLocalChange();
     },
     get flag() {
@@ -156,7 +163,7 @@ test('sync : deux appareils se rejoignent, ajouts et suppressions propagés', as
   await phone.sync.signIn();
   await settle();
   assert.equal(phone.flag, '1');
-  assert.deepEqual(visibleFavorites(cloud.docs.get('u1')).map((f) => f.code), ['59350']);
+  assert.deepEqual(visibleFavorites(cloud.docs.get('u1').items).map((f) => f.code), ['59350']);
 
   laptop.sync.start();
   await laptop.sync.signIn();
@@ -218,7 +225,7 @@ test('sync : reconnexion automatique au démarrage si on était connecté', asyn
   const cloud = fakeCloud();
   const adapter = cloud.device();
   await adapter.signIn(); // session déjà ouverte sur cet appareil
-  let local = [];
+  let local = { items: [], dossiers: [] };
   let loaded = 0;
   const sync = createSync({
     config: { projectId: 'test' },
@@ -233,4 +240,26 @@ test('sync : reconnexion automatique au démarrage si on était connecté', asyn
   await settle();
   assert.equal(loaded, 1);
   assert.equal(sync.getState().status, 'synced');
+});
+
+test('sync : les dossiers et leurs notes passent d’un appareil à l’autre', async () => {
+  const { createFolder, addToFolder, setFolderNote, renameFolder, deleteFolder, findFolder, folderCities } = await import('../js/lib/folders.js');
+  const cloud = fakeCloud();
+  const phone = makeDevice(cloud, [], addToFolder(createFolder([], 'Maison', new Date(), 'd1').folders, 'd1', lille));
+  const laptop = makeDevice(cloud);
+  for (const d of [phone, laptop]) {
+    d.sync.start();
+    await d.sync.signIn();
+    await settle();
+  }
+  assert.equal(findFolder(laptop.folders, 'd1').nom, 'Maison');
+  laptop.changeFolders((f) => setFolderNote(renameFolder(f, 'd1', 'Maison Nord'), 'd1', '59350', 'Vieux-Lille'));
+  await settle();
+  const f = findFolder(phone.folders, 'd1');
+  assert.equal(f.nom, 'Maison Nord');
+  assert.equal(folderCities(f)[0].note, 'Vieux-Lille');
+  phone.changeFolders((fs) => deleteFolder(fs, 'd1'));
+  await settle();
+  assert.equal(findFolder(laptop.folders, 'd1'), null);
+  assert.ok(Array.isArray(cloud.docs.get('u1').dossiers));
 });

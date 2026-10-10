@@ -41,8 +41,45 @@ export function starButton(isFav, name, onClick) {
   );
 }
 
+/** Icône de dossier (pleine si la commune est rangée dans au moins un dossier). */
+function folderIcon(filled) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '22');
+  svg.setAttribute('height', '22');
+  svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'M3 6.5A1.5 1.5 0 0 1 4.5 5h4.6l2 2.2h8.4A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z');
+  path.setAttribute('fill', filled ? 'currentColor' : 'none');
+  path.setAttribute('stroke', 'currentColor');
+  path.setAttribute('stroke-width', '1.8');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.append(path);
+  return svg;
+}
+
+/** Bouton « Ajouter à un dossier » ; count = nombre de dossiers contenant la commune. */
+export function folderButton(count, name, onClick) {
+  const label = count
+    ? `Dossiers (${count > 1 ? `dans ${count} dossiers` : 'dans 1 dossier'}) : ${name}`
+    : `Ajouter à un dossier : ${name}`;
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: `star-btn folder-btn${count ? ' in-folder' : ''}`,
+      'aria-label': label,
+      'aria-haspopup': 'dialog',
+      title: count ? `Dans ${count} dossier${count > 1 ? 's' : ''}` : 'Ajouter à un dossier',
+      onclick: onClick,
+    },
+    folderIcon(count > 0)
+  );
+}
+
 /** Ligne de la liste des résultats */
-export function resultRow(result, { pointNames, selected, isFav, onOpen, onToggleFav }) {
+export function resultRow(result, { pointNames, selected, isFav, folderCount = 0, onOpen, onToggleFav, onFolders }) {
   const c = result.commune;
   const meta = `${populationText(c.population)} · ${distanceText(result, pointNames)}`;
   return h(
@@ -60,6 +97,7 @@ export function resultRow(result, { pointNames, selected, isFav, onOpen, onToggl
       h('span', { class: 'r-meta' }, meta),
       badge(c.population)
     ),
+    folderButton(folderCount, c.nom, () => onFolders(c.code)),
     starButton(isFav, c.nom, () => onToggleFav(c.code))
   );
 }
@@ -139,7 +177,7 @@ function priceCell(insights, commune) {
 }
 
 /** Contenu de la fiche commune */
-export function detailsContent(commune, { data, result, pointNames, isFav, insights, onClose, onToggleFav, onSearchAround }) {
+export function detailsContent(commune, { data, result, pointNames, isFav, folderCount = 0, insights, onClose, onToggleFav, onFolders, onSearchAround }) {
   const value = (v) => (v == null || v === '' ? h('span', { class: 'muted' }, NA) : v);
   const dens = density(commune.population, commune.surface);
   const cps = commune.codesPostaux ?? [];
@@ -203,6 +241,12 @@ export function detailsContent(commune, { data, result, pointNames, isFav, insig
     ),
     h(
       'button',
+      { type: 'button', class: 'btn btn-secondary details-around', 'aria-haspopup': 'dialog', onclick: onFolders },
+      folderIcon(folderCount > 0),
+      folderCount ? ` Dans ${folderCount} dossier${folderCount > 1 ? 's' : ''} : modifier` : ' Ajouter à un dossier'
+    ),
+    h(
+      'button',
       { type: 'button', class: 'btn btn-secondary details-around', onclick: onSearchAround },
       `Chercher autour de ${commune.nom}`
     ),
@@ -210,12 +254,10 @@ export function detailsContent(commune, { data, result, pointNames, isFav, insig
 }
 
 /** Élément de la liste des favoris */
-export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote, selected, selectDisabled, onSelect, onSearchAround }) {
-  const noteId = `note-${item.code}`;
+export function favoriteRow(item, commune, { data, folderCount = 0, onOpen, onRemove, onFolders, selected, selectDisabled, onSelect, onSearchAround }) {
   const sub = commune
     ? `${departementLabel(commune.dep, data.departements)} · ${populationText(commune.population)}`
     : 'Commune introuvable dans les données';
-  let timer = null;
   return h(
     'li',
     { dataset: { code: item.code } },
@@ -229,12 +271,67 @@ export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote, sel
         h('span', { class: 'r-meta' }, sub),
         commune ? badge(commune.population) : null
       ),
+      commune ? folderButton(folderCount, commune.nom, () => onFolders(item.code)) : null,
       starButton(true, commune?.nom ?? item.nom, () => onRemove(item.code))
+    ),
+    commune
+      ? h(
+          'div',
+          { class: 'fav-actions' },
+          h(
+            'label',
+            { class: 'fav-compare' },
+            h('input', {
+              type: 'checkbox',
+              checked: selected,
+              disabled: selectDisabled && !selected,
+              onchange: (e) => onSelect(item.code, e.target.checked),
+            }),
+            ' Comparer'
+          ),
+          h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => onSearchAround(item.code) }, 'Chercher autour')
+        )
+      : null
+  );
+}
+
+/** Ville dans un dossier : note personnelle propre à ce dossier. */
+export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove, onNote, onSearchAround }) {
+  const noteId = `note-${folderId}-${item.code}`;
+  const name = commune?.nom ?? item.nom;
+  const sub = commune
+    ? `${departementLabel(commune.dep, data.departements)} · ${populationText(commune.population)}`
+    : 'Commune introuvable dans les données';
+  let timer = null;
+  return h(
+    'li',
+    { dataset: { code: item.code } },
+    h(
+      'div',
+      { class: 'fav-head' },
+      h(
+        'button',
+        { type: 'button', class: 'result', onclick: () => commune && onOpen(item.code), disabled: !commune },
+        h('span', { class: 'r-name' }, name),
+        h('span', { class: 'r-meta' }, sub),
+        commune ? badge(commune.population) : null
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'star-btn',
+          'aria-label': `Retirer du dossier : ${name}`,
+          title: 'Retirer du dossier',
+          onclick: () => onRemove(item.code),
+        },
+        '✕'
+      )
     ),
     h(
       'div',
       { class: 'fav-note' },
-      h('label', { for: noteId }, 'Note personnelle'),
+      h('label', { for: noteId }, 'Note'),
       h('textarea', {
         id: noteId,
         rows: 2,
@@ -254,24 +351,25 @@ export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote, sel
       ? h(
           'div',
           { class: 'fav-actions' },
-          h(
-            'label',
-            { class: 'fav-compare' },
-            h('input', {
-              type: 'checkbox',
-              checked: selected,
-              disabled: selectDisabled && !selected,
-              onchange: (e) => onSelect(item.code, e.target.checked),
-            }),
-            ' Comparer'
-          ),
-          h(
-            'button',
-            { type: 'button', class: 'btn btn-ghost', onclick: () => onSearchAround(item.code) },
-            'Chercher autour'
-          )
+          h('span'),
+          h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => onSearchAround(item.code) }, 'Chercher autour')
         )
       : null
+  );
+}
+
+/** Ligne de la liste des dossiers */
+export function folderRow(folder, count, { onOpen }) {
+  return h(
+    'li',
+    { dataset: { id: folder.id } },
+    h(
+      'button',
+      { type: 'button', class: 'result folder-row', onclick: () => onOpen(folder.id) },
+      h('span', { class: 'r-name' }, folderIcon(true), ' ', folder.nom),
+      h('span', { class: 'r-meta' }, count ? `${count} commune${count > 1 ? 's' : ''}` : 'Vide'),
+      h('span', { class: 'folder-chevron', 'aria-hidden': 'true' }, '›')
+    )
   );
 }
 
@@ -309,10 +407,13 @@ export function comparisonTableElement({ columns, rows }) {
   );
 }
 
-/** Version imprimable des favoris : une fiche par commune, avec la note. */
-export function favoritesPrintContent({ appName, items, data, insights, pointNames }) {
+/**
+ * Version imprimable de favoris ou de dossiers : une fiche par commune.
+ * sections : [{ title?, items: [{ fav, commune, result }] }] ; withNotes affiche la note.
+ */
+export function favoritesPrintContent({ appName, title, sections, data, insights, pointNames, withNotes = false }) {
   const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date());
-  const cards = items.map(({ fav, commune, result }) => {
+  const card = ({ fav, commune, result }) => {
     const dens = density(commune.population, commune.surface);
     const facts = [
       ['Population', Number.isFinite(commune.population) ? `${formatNumber(commune.population)} habitants` : NA],
@@ -329,13 +430,17 @@ export function favoritesPrintContent({ appName, items, data, insights, pointNam
       h('h2', {}, `${commune.nom} (${commune.dep})`),
       h('p', { class: 'print-fav-sub' }, `${departementLabel(commune.dep, data.departements)} · ${data.regions[commune.reg] ?? ''} · code postal ${commune.codesPostaux.join(', ')}`),
       h('dl', {}, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
-      h('p', { class: 'print-fav-note' }, h('strong', {}, 'Note : '), fav.note || '—')
+      withNotes ? h('p', { class: 'print-fav-note' }, h('strong', {}, 'Note : '), fav.note || '—') : null
     );
-  });
+  };
+  const total = sections.reduce((n, s) => n + s.items.length, 0);
   return [
-    h('h1', {}, `${appName} — mes favoris`),
-    h('p', { class: 'print-meta' }, `${items.length} ${items.length > 1 ? 'communes' : 'commune'} · imprimé le ${date} · Données : INSEE / geo.api.gouv.fr`),
-    ...cards,
+    h('h1', {}, `${appName} — ${title}`),
+    h('p', { class: 'print-meta' }, `${total} ${total > 1 ? 'communes' : 'commune'} · imprimé le ${date} · Données : INSEE / geo.api.gouv.fr`),
+    ...sections.flatMap((s) => [
+      ...(s.title ? [h('h2', { class: 'print-section' }, s.title)] : []),
+      ...(s.items.length ? s.items.map(card) : [h('p', {}, 'Aucune commune.')]),
+    ]),
   ];
 }
 

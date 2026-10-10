@@ -3,11 +3,12 @@
 // rien n'est chargé. Le SDK Firebase n'est téléchargé que pour les personnes
 // qui se connectent.
 //
-// Données : un document par compte, favoris/{uid} = { version, items, modifie }.
-// Fusion : syncMerge() (la version la plus récente de chaque favori gagne,
+// Données : un document par compte, favoris/{uid} = { version, items, dossiers, modifie }.
+// Fusion : mergeUserData() (la version la plus récente de chaque favori, dossier
+// et ville de dossier gagne,
 // suppressions comprises).
 
-import { cleanFavorites, sameFavorites, syncMerge } from './lib/favorites.js';
+import { cleanUserData, EMPTY_USER_DATA, mergeUserData, sameUserData } from './lib/userdata.js';
 
 const FIREBASE_VERSION = '11.0.2';
 
@@ -31,15 +32,15 @@ export async function loadFirebaseFromCdn(config) {
     watch: (uid, onData, onError) =>
       F.onSnapshot(
         ref(uid),
-        (snap) => onData(snap.exists() ? snap.data().items ?? [] : null, { local: snap.metadata.hasPendingWrites }),
+        (snap) => onData(snap.exists() ? snap.data() : null, { local: snap.metadata.hasPendingWrites }),
         onError
       ),
     update: (uid, fn) =>
       F.runTransaction(db, async (tx) => {
         const snap = await tx.get(ref(uid));
-        const items = fn(snap.exists() ? cleanFavorites(snap.data().items) : []);
-        tx.set(ref(uid), { version: 1, items, modifie: F.serverTimestamp() });
-        return items;
+        const merged = fn(snap.exists() ? cleanUserData(snap.data()) : EMPTY_USER_DATA);
+        tx.set(ref(uid), { version: 2, items: merged.items, dossiers: merged.dossiers, modifie: F.serverTimestamp() });
+        return merged;
       }),
     remove: (uid) => F.deleteDoc(ref(uid)),
   };
@@ -51,8 +52,8 @@ const SILENT_ERRORS = ['auth/popup-closed-by-user', 'auth/cancelled-popup-reques
 /**
  * @param {object} o
  *   config          configuration Firebase, ou null (synchronisation absente)
- *   getLocal()      favoris locaux (avec marques de suppression)
- *   setLocal(items) remplace les favoris locaux (et met l'affichage à jour)
+ *   getLocal()      données locales { items, dossiers } (avec marques de suppression)
+ *   setLocal(data)  remplace les données locales (et met l'affichage à jour)
  *   onState(state)  { status, user, error } — status : off | idle | loading |
  *                   signed-out | syncing | synced | error
  *   flag            { get(), set(value) } : mémorise qu'on était connecté
@@ -82,7 +83,7 @@ export function createSync({ config, getLocal, setLocal, onState, flag, loadFire
   };
 
   function applyMerged(merged) {
-    if (!sameFavorites(merged, getLocal())) setLocal(merged);
+    if (!sameUserData(merged, getLocal())) setLocal(merged);
   }
 
   function push() {
@@ -92,7 +93,7 @@ export function createSync({ config, getLocal, setLocal, onState, flag, loadFire
     timer = null;
     setState({ status: 'syncing' });
     pushing = pushing
-      .then(() => adapter.update(uid, (remote) => syncMerge(remote, getLocal(), now())))
+      .then(() => adapter.update(uid, (remote) => mergeUserData(remote, getLocal(), now())))
       .then((merged) => {
         if (user?.uid !== uid) return;
         applyMerged(merged);
@@ -108,12 +109,12 @@ export function createSync({ config, getLocal, setLocal, onState, flag, loadFire
     timer = setTimeout(push, pushDelay);
   }
 
-  function onRemote(items, { local } = {}) {
+  function onRemote(doc, { local } = {}) {
     if (local) return; // écho de notre propre écriture
-    const remote = items == null ? null : cleanFavorites(items);
-    const merged = syncMerge(getLocal(), remote ?? [], now());
+    const remote = doc == null ? null : cleanUserData(doc);
+    const merged = mergeUserData(getLocal(), remote ?? EMPTY_USER_DATA, now());
     applyMerged(merged);
-    if (remote == null || !sameFavorites(merged, remote)) schedulePush();
+    if (remote == null || !sameUserData(merged, remote)) schedulePush();
     else if (!timer) setState({ status: 'synced', error: null });
   }
 

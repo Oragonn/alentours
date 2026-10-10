@@ -463,7 +463,7 @@ textarea {
 
 .tabs {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 4px;
   padding: 4px;
   border-radius: calc(var(--radius) + 2px);
@@ -1159,6 +1159,145 @@ li.selected .result {
   width: 100%;
 }
 
+/* Dossiers */
+.folders-home,
+.folder-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.folder-create {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.folder-create-row {
+  display: flex;
+  gap: 8px;
+}
+
+.folder-create-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.folders-list {
+  list-style: none;
+  margin: 0 -6px;
+  padding: 0;
+}
+
+.folders-list li {
+  border-bottom: 1px solid var(--border);
+}
+
+.folders-list li:last-child {
+  border-bottom: 0;
+}
+
+.folder-row .r-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folder-row .r-name svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.folder-chevron {
+  grid-area: badge;
+  font-size: 1.6rem;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.folder-back {
+  align-self: flex-start;
+  padding-left: 0;
+}
+
+.folder-title {
+  margin: -6px 0 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.folder-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.folder-btn.in-folder {
+  color: var(--accent);
+}
+
+.details-around svg {
+  flex: none;
+}
+
+/* Fenêtre « Ranger dans un dossier » */
+.picker {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.picker[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.picker::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.picker-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 18px;
+  overflow-y: auto;
+}
+
+.picker-city {
+  margin: 0;
+  font-weight: 600;
+}
+
+.picker-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 18px 16px;
+}
+
+@media (max-width: 767.98px) {
+  .picker {
+    width: 100vw;
+    max-width: 100vw;
+    margin: auto 0 0;
+    border-radius: 16px 16px 0 0;
+    max-height: 85dvh;
+  }
+}
+
+@media print {
+  .print-section {
+    font-size: 14pt;
+    margin: 14pt 0 2pt;
+    border-bottom: 1pt solid #000;
+  }
+}
+
 /* Comparaison */
 .compare {
   width: min(960px, calc(100vw - 32px));
@@ -1657,6 +1796,19 @@ li.selected .result {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
   font-size: 15px;
   line-height: 1;
+}
+
+.folder-marker span {
+  background: var(--accent);
+  border-color: #ffffff;
+}
+
+.folder-marker .folder-dot::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: #ffffff;
 }
 
 .zones-message {

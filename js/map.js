@@ -510,11 +510,13 @@ export class MapView {
 
   // ---- Favoris -----------------------------------------------------------
 
-  showFavorites(communes) {
+  /** Favoris (étoile) ou villes du dossier ouvert (kind = 'folder'). */
+  showFavorites(communes, kind = 'fav') {
     this.favoritesLayer.clearLayers();
+    const html = kind === 'folder' ? '<span class="folder-dot"></span>' : '<span>★</span>';
     for (const c of communes) {
       const m = L.marker([c.lat, c.lon], {
-        icon: L.divIcon({ className: 'fav-marker', html: '<span>★</span>', iconSize: [26, 26], iconAnchor: [13, 13] }),
+        icon: L.divIcon({ className: kind === 'folder' ? 'fav-marker folder-marker' : 'fav-marker', html, iconSize: [26, 26], iconAnchor: [13, 13] }),
         title: c.nom,
         alt: c.nom,
         zIndexOffset: 500,
