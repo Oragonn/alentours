@@ -1,0 +1,16 @@
+{
+  "name": "alentours",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Trouver les communes françaises autour d'un point",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "data": "node scripts/build-communes.mjs",
+    "data:all": "node scripts/build-communes.mjs && node scripts/build-population-history.mjs && node scripts/build-dvf.mjs",
+    "start": "npx --yes serve@14.2.4 ."
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

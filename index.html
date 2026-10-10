@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Alentours</title>
+  <meta name="description" content="Trouvez toutes les communes françaises dans un rayon donné autour d'une ville, d'un code postal ou d'un point sur la carte.">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b0b0d" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%232563eb' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%232563eb'/%3E%3C/svg%3E">
+  <script>
+    // Thème appliqué avant le premier affichage (pas de flash)
+    (function () {
+      try {
+        var t = localStorage.getItem('alentours.theme');
+        if (t === 'clair') document.documentElement.setAttribute('data-theme', 'light');
+        else if (t === 'sombre') document.documentElement.setAttribute('data-theme', 'dark');
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="preload" href="data/communes.json" as="fetch" crossorigin>
+  <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="modulepreload" href="js/app.js">
+</head>
+<body>
+  <a class="skip-link" href="#q-0">Aller à la recherche</a>
+
+  <div class="app">
+    <aside id="panel" class="panel" data-sheet="half" aria-label="Recherche et résultats">
+      <div class="sheet-grip" id="sheet-grip">
+        <button type="button" class="sheet-handle" id="sheet-handle" aria-label="Agrandir ou réduire le panneau">
+          <span aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <header class="panel-header">
+        <div class="brand-row">
+          <h1 class="brand" data-app-name>Alentours</h1>
+          <button type="button" class="btn btn-ghost sheet-toggle" id="sheet-toggle">Voir la carte</button>
+        </div>
+        <p id="results-count" class="results-count" role="status" aria-live="polite">Chargement des communes…</p>
+      </header>
+
+      <div class="panel-body" id="panel-body">
+        <div class="tabs" role="tablist" aria-label="Affichage">
+          <button type="button" role="tab" id="tab-results" class="tab" aria-selected="true" aria-controls="view-results">Recherche</button>
+          <button type="button" role="tab" id="tab-favorites" class="tab" aria-selected="false" aria-controls="view-favorites" tabindex="-1">Favoris <span id="favorites-count" class="tab-count"></span></button>
+        </div>
+
+        <section id="view-results" role="tabpanel" aria-labelledby="tab-results">
+          <div id="data-status" class="data-status" hidden></div>
+
+          <form id="search-form" autocomplete="off" novalidate>
+            <fieldset id="search-fieldset" class="search-form" disabled>
+            <legend class="visually-hidden">Paramètres de recherche</legend>
+            <div id="points" class="points"></div>
+            <button type="button" class="btn btn-secondary btn-block" id="add-point">
+              <span aria-hidden="true">＋</span> Ajouter un point de départ
+            </button>
+            <p id="point-hint" class="hint" hidden></p>
+
+            <div class="field-row">
+              <div class="field">
+                <label for="pop-min">Population minimum</label>
+                <input id="pop-min" name="pmin" type="text" inputmode="numeric" placeholder="Aucune" aria-describedby="pop-error">
+              </div>
+              <div class="field">
+                <label for="pop-max">Population maximum</label>
+                <input id="pop-max" name="pmax" type="text" inputmode="numeric" placeholder="Aucune" aria-describedby="pop-error">
+              </div>
+            </div>
+            <p id="pop-error" class="field-error" role="alert" hidden></p>
+
+            <label class="switch">
+              <input type="checkbox" id="rings-toggle">
+              <span class="switch-track" aria-hidden="true"></span>
+              <span>Cercles de distance</span>
+            </label>
+
+            <details class="admin-filters" id="admin-filters">
+              <summary>Filtrer par région ou département <span id="admin-filters-count" class="tab-count"></span></summary>
+              <div class="admin-filters-body">
+                <fieldset class="checklist-group">
+                  <legend>Région</legend>
+                  <div id="filter-regions" class="checklist"></div>
+                </fieldset>
+                <fieldset class="checklist-group">
+                  <legend>Département</legend>
+                  <div id="filter-departements" class="checklist"></div>
+                </fieldset>
+                <button type="button" class="btn btn-secondary" id="reset-filters">Réinitialiser les filtres</button>
+              </div>
+            </details>
+            </fieldset>
+          </form>
+
+          <div class="results-toolbar">
+            <div class="sort">
+              <label for="sort-key">Trier par</label>
+              <select id="sort-key">
+                <option value="distance">Distance</option>
+                <option value="population">Population</option>
+                <option value="nom">Nom</option>
+              </select>
+              <button type="button" class="btn btn-icon" id="sort-dir" aria-label="Ordre croissant" title="Ordre croissant">↑</button>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="button" class="btn btn-secondary" id="share-link" disabled>Copier le lien</button>
+            <button type="button" class="btn btn-secondary" id="export-csv" disabled>Exporter en CSV</button>
+            <button type="button" class="btn btn-secondary" id="print" disabled>Imprimer / PDF</button>
+          </div>
+          <p id="action-feedback" class="feedback" role="status" aria-live="polite"></p>
+
+          <p id="results-hint" class="hint results-hint">Choisissez une ville, un code postal ou cliquez sur la carte</p>
+          <ul id="results-list" class="results-list" aria-label="Communes trouvées"></ul>
+          <button type="button" class="btn btn-secondary btn-block" id="show-more" hidden>Afficher plus</button>
+        </section>
+
+        <section id="view-favorites" role="tabpanel" aria-labelledby="tab-favorites" hidden>
+          <div class="actions">
+            <button type="button" class="btn btn-secondary" id="favorites-export">Exporter les favoris</button>
+            <button type="button" class="btn btn-secondary" id="favorites-export-csv">Exporter les favoris en CSV</button>
+            <button type="button" class="btn btn-secondary" id="favorites-import">Importer des favoris</button>
+            <input type="file" id="favorites-file" accept=".json,application/json" hidden>
+          </div>
+          <div id="import-choice" class="import-choice" hidden>
+            <p id="import-choice-text"></p>
+            <div class="actions">
+              <button type="button" class="btn btn-primary" id="import-merge">Fusionner</button>
+              <button type="button" class="btn btn-secondary" id="import-replace">Remplacer</button>
+              <button type="button" class="btn btn-ghost" id="import-cancel">Annuler</button>
+            </div>
+          </div>
+          <p id="favorites-feedback" class="feedback" role="status" aria-live="polite"></p>
+          <p id="favorites-empty" class="hint">Aucun favori pour l'instant. Ouvrez une commune et touchez « Ajouter aux favoris ».</p>
+          <ul id="favorites-list" class="favorites-list" aria-label="Communes favorites"></ul>
+        </section>
+
+        <footer class="panel-footer">
+          <fieldset class="theme-switch">
+            <legend>Thème</legend>
+            <div class="segmented">
+              <label><input type="radio" name="theme" value="clair"><span>Clair</span></label>
+              <label><input type="radio" name="theme" value="sombre"><span>Sombre</span></label>
+              <label><input type="radio" name="theme" value="auto" checked><span>Automatique</span></label>
+            </div>
+          </fieldset>
+          <p class="data-source" id="data-source">Données : INSEE / geo.api.gouv.fr</p>
+        </footer>
+      </div>
+    </aside>
+
+    <main class="map-area">
+      <div id="map" class="map" role="region" aria-label="Carte des communes"></div>
+    </main>
+
+    <div id="details" class="details" role="dialog" aria-labelledby="details-title" hidden>
+      <div class="details-inner" id="details-inner"></div>
+    </div>
+  </div>
+
+  <section id="print-view" class="print-view" aria-hidden="true"></section>
+
+  <script src="vendor/leaflet-1.9.4/leaflet.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

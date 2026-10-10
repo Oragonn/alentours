@@ -1,0 +1,423 @@
+// Carte Leaflet : fonds de carte, cercles de recherche, marqueurs des communes.
+
+/* global L */
+import { MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
+import { boundingBox, KM_PER_DEGREE, markerRadius } from './lib/geo.js';
+import { sizeCategoryOf } from './lib/commune.js';
+import { load, save } from './storage.js';
+
+const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">les contributeurs d’OpenStreetMap</a>';
+
+const TILES = {
+  planLight: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: { maxZoom: 19, attribution: OSM_ATTRIBUTION },
+  },
+  // Les fonds sombres gratuits (CARTO Dark Matter…) exigent désormais une clé :
+  // en mode sombre, les tuiles OSM sont assombries par un filtre CSS.
+  planDark: {
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    options: { maxZoom: 19, attribution: OSM_ATTRIBUTION, className: 'tiles-dark' },
+  },
+  satellite: {
+    url:
+      'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS' +
+      '&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/jpeg&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}',
+    options: {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.ign.fr/">IGN</a> – <a href="https://geoservices.ign.fr/">Géoplateforme</a>',
+    },
+  },
+  satelliteFallback: {
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    options: {
+      maxZoom: 19,
+      attribution: 'Imagerie &copy; Esri, Maxar, Earthstar Geographics',
+    },
+  },
+};
+
+const MOBILE_QUERY = window.matchMedia('(max-width: 767.98px)');
+
+const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function pinIcon(color, label) {
+  const svg = `<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true">
+    <path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 39 15 39s14-13.7 14-24.1C29 7.2 22.7 1 15 1z"
+      fill="${color}" stroke="#fff" stroke-width="2"/>
+    <circle cx="15" cy="15" r="5.5" fill="#fff"/>
+  </svg>`;
+  return L.divIcon({
+    className: 'start-marker',
+    html: svg,
+    iconSize: [30, 40],
+    iconAnchor: [15, 39],
+    tooltipAnchor: [0, -36],
+  });
+}
+
+export class MapView {
+  /**
+   * @param {HTMLElement} el
+   * @param {object} handlers { onMapClick(lat, lon), onCommuneClick(code), getPadding() }
+   */
+  constructor(el, handlers) {
+    this.handlers = handlers;
+    this.theme = 'light';
+    this.style = load(STORAGE_KEYS.mapStyle) === 'satellite' ? 'satellite' : 'plan';
+    this.markers = new Map();
+    this.results = [];
+    this.points = [];
+    this.colors = [];
+    this.rings = false;
+    this.useSatelliteFallback = false;
+
+    const map = (this.map = L.map(el, {
+      center: [MAP_START.lat, MAP_START.lon],
+      zoom: MAP_START.zoom,
+      zoomControl: false,
+      preferCanvas: true,
+      worldCopyJump: true,
+    }));
+    map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
+    L.control.zoom({ position: 'topleft', zoomInTitle: 'Zoom avant', zoomOutTitle: 'Zoom arrière' }).addTo(map);
+
+    map.createPane('zonesPane').style.zIndex = 350;
+    map.createPane('highlightPane').style.zIndex = 450;
+    map.getPane('highlightPane').style.pointerEvents = 'none';
+
+    this.renderer = L.canvas({ padding: 0.5, tolerance: 5 });
+    this.zonesRenderer = L.canvas({ pane: 'zonesPane', padding: 0.5 });
+    this.highlightRenderer = L.svg({ pane: 'highlightPane' });
+
+    this.zonesLayer = L.layerGroup().addTo(map);
+    this.ringsLayer = L.layerGroup().addTo(map);
+    this.resultsLayer = L.layerGroup().addTo(map);
+    this.highlightLayer = L.layerGroup().addTo(map);
+    this.startLayer = L.layerGroup().addTo(map);
+    this.favoritesLayer = L.layerGroup();
+
+    this.tooltip = L.tooltip({ className: 'commune-tooltip', direction: 'top', opacity: 1 });
+
+    this.addStyleControl();
+    this.setupClick();
+    this.placeAttribution();
+    MOBILE_QUERY.addEventListener('change', () => this.placeAttribution());
+  }
+
+  // ---- Fonds de carte ----------------------------------------------------
+
+  addStyleControl() {
+    const view = this;
+    const Control = L.Control.extend({
+      options: { position: 'topleft' },
+      onAdd() {
+        const div = L.DomUtil.create('div', 'map-style-control leaflet-control');
+        div.setAttribute('role', 'group');
+        div.setAttribute('aria-label', 'Style de carte');
+        for (const [value, label] of [
+          ['plan', 'Plan'],
+          ['satellite', 'Satellite'],
+        ]) {
+          const btn = L.DomUtil.create('button', '', div);
+          btn.type = 'button';
+          btn.textContent = label;
+          btn.dataset.style = value;
+          btn.addEventListener('click', () => view.setStyle(value));
+        }
+        L.DomEvent.disableClickPropagation(div);
+        view.styleControlEl = div;
+        return div;
+      },
+    });
+    this.styleControl = new Control().addTo(this.map);
+  }
+
+  setTheme(theme) {
+    this.theme = theme;
+    this.updateBaseLayer();
+    this.restyleMarkers();
+  }
+
+  setStyle(style) {
+    this.style = style;
+    save(STORAGE_KEYS.mapStyle, style);
+    this.updateBaseLayer();
+  }
+
+  updateBaseLayer() {
+    let key;
+    if (this.style === 'satellite') key = this.useSatelliteFallback ? 'satelliteFallback' : 'satellite';
+    else key = this.theme === 'dark' ? 'planDark' : 'planLight';
+    if (this.baseKey !== key) {
+      if (this.baseLayer) this.map.removeLayer(this.baseLayer);
+      const { url, options } = TILES[key];
+      this.baseLayer = L.tileLayer(url, options).addTo(this.map);
+      this.baseKey = key;
+      if (key === 'satellite') this.watchSatellite(this.baseLayer);
+    }
+    for (const btn of this.styleControlEl?.querySelectorAll('button') ?? []) {
+      btn.setAttribute('aria-pressed', String(btn.dataset.style === this.style));
+    }
+  }
+
+  /** Bascule vers l'imagerie Esri si la Géoplateforme IGN ne répond pas. */
+  watchSatellite(layer) {
+    let loaded = 0;
+    let errors = 0;
+    layer.on('tileload', () => loaded++);
+    layer.on('tileerror', () => {
+      errors++;
+      if (errors >= 4 && loaded === 0 && !this.useSatelliteFallback) {
+        this.useSatelliteFallback = true;
+        this.updateBaseLayer();
+      }
+    });
+  }
+
+  /** Sur mobile, le bas de la carte est caché par le panneau coulissant. */
+  placeAttribution() {
+    const mobile = MOBILE_QUERY.matches;
+    this.map.attributionControl.setPosition(mobile ? 'topright' : 'bottomright');
+    this.styleControl?.setPosition(mobile ? 'topleft' : 'bottomleft');
+  }
+
+  // ---- Clic sur la carte -------------------------------------------------
+
+  setupClick() {
+    // Un simple clic/toucher place le point ; un double-toucher ou un pincement
+    // zoome sans placer de point : on attend un court instant avant d'agir.
+    let timer = null;
+    const cancel = () => {
+      clearTimeout(timer);
+      timer = null;
+    };
+    this.map.on('click', (e) => {
+      if (timer) {
+        cancel();
+        return;
+      }
+      const { lat, lng } = e.latlng.wrap();
+      timer = setTimeout(() => {
+        timer = null;
+        this.handlers.onMapClick?.(lat, lng);
+      }, 280);
+    });
+    this.map.on('dblclick zoomstart movestart', cancel);
+  }
+
+  // ---- Recherche ---------------------------------------------------------
+
+  /** Dessine les cercles, les points de départ et les marqueurs. */
+  render({ points, colors, results, names }) {
+    this.points = points;
+    this.colors = colors;
+    this.names = names;
+    this.drawZones();
+    this.drawResults(results);
+  }
+
+  drawZones() {
+    this.zonesLayer.clearLayers();
+    this.ringsLayer.clearLayers();
+    this.startLayer.clearLayers();
+    this.points.forEach((p, i) => {
+      if (!p) return;
+      const color = this.colors[i];
+      L.circle([p.lat, p.lon], {
+        radius: p.radius * 1000,
+        renderer: this.zonesRenderer,
+        color,
+        weight: 2,
+        fillColor: color,
+        fillOpacity: 0.07,
+        interactive: false,
+      }).addTo(this.zonesLayer);
+      const marker = L.marker([p.lat, p.lon], {
+        icon: pinIcon(color),
+        keyboard: false,
+        interactive: true,
+        zIndexOffset: 1000,
+        title: this.names?.[i] ?? 'Point de départ',
+        alt: this.names?.[i] ?? 'Point de départ',
+      }).addTo(this.startLayer);
+      marker.on('click', (e) => L.DomEvent.stopPropagation(e));
+      if (this.rings) this.drawRings(p, color);
+    });
+  }
+
+  drawRings(p, color) {
+    for (let d = RING_INTERVAL_KM; d < p.radius; d += RING_INTERVAL_KM) {
+      L.circle([p.lat, p.lon], {
+        radius: d * 1000,
+        renderer: this.zonesRenderer,
+        color,
+        weight: 1.2,
+        opacity: 0.8,
+        dashArray: '6 6',
+        fill: false,
+        interactive: false,
+      }).addTo(this.ringsLayer);
+      L.marker([p.lat + d / KM_PER_DEGREE, p.lon], {
+        icon: L.divIcon({ className: 'ring-label', html: `<span>${d} km</span>`, iconSize: [0, 0] }),
+        interactive: false,
+        keyboard: false,
+      }).addTo(this.ringsLayer);
+    }
+  }
+
+  setRings(on) {
+    this.rings = on;
+    this.drawZones();
+  }
+
+  categoryColors() {
+    return {
+      village: cssVar('--cat-village'),
+      petite: cssVar('--cat-petite'),
+      moyenne: cssVar('--cat-moyenne'),
+      grande: cssVar('--cat-grande'),
+      inconnue: cssVar('--cat-inconnue'),
+      stroke: this.theme === 'dark' ? '#0b0b0d' : '#ffffff',
+    };
+  }
+
+  markerStyle(commune, colors) {
+    const cat = sizeCategoryOf(commune.population).id;
+    return {
+      radius: markerRadius(commune.population, MARKER),
+      color: colors.stroke,
+      weight: 1,
+      fillColor: colors[cat],
+      fillOpacity: 0.85,
+    };
+  }
+
+  drawResults(results) {
+    this.results = results;
+    this.resultsLayer.clearLayers();
+    this.markers.clear();
+    this.map.closeTooltip(this.tooltip);
+    const colors = this.categoryColors();
+    // Les grandes communes d'abord, pour que les petites restent visibles par-dessus
+    const ordered = [...results].sort((a, b) => (b.commune.population ?? 0) - (a.commune.population ?? 0));
+    for (const { commune } of ordered) {
+      const m = L.circleMarker([commune.lat, commune.lon], {
+        renderer: this.renderer,
+        bubblingMouseEvents: false,
+        ...this.markerStyle(commune, colors),
+      });
+      m.on('mouseover', () => this.showTooltip(commune, m));
+      m.on('mouseout', () => this.map.closeTooltip(this.tooltip));
+      m.on('click', () => {
+        this.showTooltip(commune, m);
+        this.handlers.onCommuneClick?.(commune.code);
+      });
+      m.addTo(this.resultsLayer);
+      this.markers.set(commune.code, m);
+    }
+    if (this.highlighted) this.highlight(this.highlighted);
+  }
+
+  restyleMarkers() {
+    const colors = this.categoryColors();
+    for (const { commune } of this.results) {
+      this.markers.get(commune.code)?.setStyle(this.markerStyle(commune, colors));
+    }
+    if (this.highlighted) this.highlight(this.highlighted);
+  }
+
+  showTooltip(commune, marker) {
+    this.tooltip.options.offset = [0, -marker.getRadius()];
+    this.tooltip.setLatLng([commune.lat, commune.lon]).setContent(commune.nom);
+    this.map.openTooltip(this.tooltip);
+  }
+
+  /** Met en évidence une commune (anneau autour du marqueur). */
+  highlight(commune) {
+    this.highlightLayer.clearLayers();
+    this.highlighted = commune;
+    if (!commune) return;
+    L.circleMarker([commune.lat, commune.lon], {
+      renderer: this.highlightRenderer,
+      radius: markerRadius(commune.population, MARKER) + 5,
+      color: cssVar('--accent'),
+      weight: 3,
+      fill: false,
+      interactive: false,
+    }).addTo(this.highlightLayer);
+  }
+
+  /** Centre la carte sur une commune sans changer le zoom s'il est suffisant. */
+  focusCommune(commune) {
+    const zoom = Math.max(this.map.getZoom(), 11);
+    const pad = this.handlers.getPadding?.() ?? { bottom: 0, right: 0 };
+    const target = this.map.project([commune.lat, commune.lon], zoom);
+    // Décale le centre pour que la commune ne soit pas cachée par le panneau
+    const offset = L.point(pad.right / 2, pad.bottom / 2);
+    this.map.setView(this.map.unproject(target.add(offset), zoom), zoom, { animate: !reducedMotion() });
+  }
+
+  /** Cadre la carte sur l'ensemble des cercles. */
+  fitPoints(points) {
+    const valid = points.filter(Boolean);
+    if (!valid.length) return;
+    let bounds = null;
+    for (const p of valid) {
+      const b = boundingBox(p.lat, p.lon, p.radius);
+      const lb = L.latLngBounds([b.minLat, b.minLon], [b.maxLat, b.maxLon]);
+      bounds = bounds ? bounds.extend(lb) : lb;
+    }
+    const pad = this.handlers.getPadding?.() ?? { bottom: 0, right: 0 };
+    this.map.fitBounds(bounds, {
+      paddingTopLeft: [16, 16],
+      paddingBottomRight: [16 + pad.right, 16 + pad.bottom],
+      animate: !reducedMotion(),
+    });
+  }
+
+  flyTo(lat, lon, zoom = 11) {
+    this.map.setView([lat, lon], zoom, { animate: !reducedMotion() });
+  }
+
+  // ---- Favoris -----------------------------------------------------------
+
+  showFavorites(communes) {
+    this.favoritesLayer.clearLayers();
+    for (const c of communes) {
+      const m = L.marker([c.lat, c.lon], {
+        icon: L.divIcon({ className: 'fav-marker', html: '<span>★</span>', iconSize: [26, 26], iconAnchor: [13, 13] }),
+        title: c.nom,
+        alt: c.nom,
+        zIndexOffset: 500,
+      });
+      m.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        this.handlers.onCommuneClick?.(c.code);
+      });
+      m.addTo(this.favoritesLayer);
+    }
+    if (!this.map.hasLayer(this.favoritesLayer)) this.favoritesLayer.addTo(this.map);
+  }
+
+  hideFavorites() {
+    this.map.removeLayer(this.favoritesLayer);
+  }
+
+  fitCommunes(communes) {
+    if (!communes.length) return;
+    const bounds = L.latLngBounds(communes.map((c) => [c.lat, c.lon]));
+    const pad = this.handlers.getPadding?.() ?? { bottom: 0, right: 0 };
+    this.map.fitBounds(bounds, {
+      paddingTopLeft: [40, 40],
+      paddingBottomRight: [40 + pad.right, 40 + pad.bottom],
+      maxZoom: 11,
+      animate: !reducedMotion(),
+    });
+  }
+}
+
+function reducedMotion() {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
