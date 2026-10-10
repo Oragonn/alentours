@@ -32,8 +32,7 @@ implémentées. `npm test` : 46 tests, tous verts. Aucune erreur console
   communes bloqué, le score reste à 84. Le plafond vient des tuiles raster
   (~300 Ko de PNG, origine tierce) sur la connexion 4G lente simulée.
   Pistes : un fournisseur de tuiles plus léger, ou des tuiles vectorielles.
-- **Déploiement GitHub Pages** : pas fait. Il faut créer un dépôt public et
-  pousser ; à faire par le propriétaire (étapes dans le README).
+- **Déploiement GitHub Pages** : fait le 2026-10-10 — https://oragonn.github.io/alentours/ (dépôt https://github.com/Oragonn/alentours). Vérifié depuis l'URL publique : recherche d'exemple, fiche, tendance, prix, aucune erreur console.
 
 ## Choix faits pendant l'implémentation
 
