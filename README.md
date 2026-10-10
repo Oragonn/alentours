@@ -70,6 +70,37 @@ Paris, Lyon et Marseille n'apparaissent dans certaines sources que par
 arrondissement : les scripts les regroupent (somme des populations, moyenne
 des prix médians pondérée par le nombre de ventes).
 
+## Synchroniser les favoris (facultatif)
+
+Par défaut, les favoris restent dans le navigateur. Avec un projet Firebase
+(offre gratuite « Spark », sans carte bancaire), on peut se connecter avec un
+compte Google et retrouver ses favoris et ses notes sur tous ses appareils.
+Le SDK Firebase n'est téléchargé que pour les personnes qui se connectent.
+
+1. <https://console.firebase.google.com> → **Créer un projet** (Google
+   Analytics : inutile).
+2. **Authentication** → Commencer → **Mode de connexion** → **Google** →
+   Activer → Enregistrer.
+3. **Authentication** → **Paramètres** → **Domaines autorisés** → ajouter
+   `oragonn.github.io` (`localhost` y est déjà).
+4. **Firestore Database** → Créer une base de données → emplacement en
+   Europe (par ex. `eur3` ou `europe-west9` Paris) → **mode production**.
+5. Firestore → **Règles** → coller le contenu de `firestore.rules` →
+   **Publier**. Chaque compte ne peut lire et écrire que ses propres favoris.
+6. **Paramètres du projet** (roue dentée) → Vos applications → **Web**
+   (`</>`) → enregistrer l'application → copier l'objet `firebaseConfig`
+   dans `js/firebase-config.js` (à la place de `null`).
+7. `npm run stamp`, commit, push.
+
+Facultatif : dans Google Cloud Console → API et services → Identifiants,
+limiter la clé « Browser key » aux sites `oragonn.github.io/*` et
+`localhost:*`.
+
+Données enregistrées : un document `favoris/{uid}` par compte (code INSEE,
+nom, note, dates). Bouton « Supprimer mes favoris enregistrés en ligne »
+dans l'onglet Favoris. Une suppression de favori se propage aux autres
+appareils (une marque invisible est gardée 180 jours).
+
 ## Avant chaque commit : `npm run stamp`
 
 GitHub Pages laisse les navigateurs garder chaque fichier 10 minutes en
@@ -102,6 +133,9 @@ index.html          page unique
 css/style.css       styles (thèmes clair/sombre, impression)
 js/app.js           point d'entrée : formulaire, liste, fiche, partage
 js/map.js           carte Leaflet
+js/sync.js          synchronisation des favoris (Firebase, facultative)
+js/firebase-config.js  configuration Firebase (null = désactivée)
+firestore.rules     règles de sécurité de la base Firestore
 js/config.js        nom du site, seuils, valeurs par défaut
 js/lib/             logique pure, testée avec Node (aucun accès au DOM)
                     (après toute modification de js/, css/ ou data/ :

@@ -1105,6 +1105,37 @@ li.selected .result {
   margin-top: 2px;
 }
 
+.sync-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.sync-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.sync-status {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.sync-status.error {
+  color: var(--danger);
+}
+
+.sync-delete {
+  align-self: flex-start;
+  padding-left: 0;
+  font-weight: 500;
+  font-size: 0.88rem;
+}
+
 .import-choice {
   padding: 12px;
   border-radius: var(--radius);

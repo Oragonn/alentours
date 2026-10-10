@@ -1,0 +1,19 @@
+rules_version = '2';
+
+// Règles de la base Firestore d'Alentours (synchronisation des favoris).
+// À coller dans la console Firebase : Firestore Database → Règles → Publier.
+//
+// Chaque compte ne peut lire et écrire que son propre document
+// favoris/{uid}. Tout le reste est refusé.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /favoris/{uid} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['version', 'items', 'modifie'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 2000;
+    }
+  }
+}

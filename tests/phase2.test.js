@@ -12,6 +12,7 @@ import {
   setNote,
   toggleFavorite,
   toStoredFavorites,
+  visibleFavorites,
 } from '../js/lib/favorites.js';
 import { populationTrend, priceInfo, trendText } from '../js/lib/insights.js';
 import { deName, searchSummary } from '../js/lib/summary.js';
@@ -24,7 +25,9 @@ const day = new Date('2026-10-10T12:00:00Z');
 
 test('favoris : ajout, retrait, note, bascule', () => {
   let favs = addFavorite([], lille, day);
-  assert.deepEqual(favs, [{ code: '59350', nom: 'Lille', note: '', ajoute: '2026-10-10T12:00:00.000Z' }]);
+  assert.deepEqual(favs, [
+    { code: '59350', nom: 'Lille', note: '', ajoute: '2026-10-10T12:00:00.000Z', modifie: '2026-10-10T12:00:00.000Z' },
+  ]);
   assert.equal(addFavorite(favs, lille, day), favs, 'pas de doublon');
   favs = toggleFavorite(favs, arras, day);
   assert.equal(favs.length, 2);
@@ -33,7 +36,7 @@ test('favoris : ajout, retrait, note, bascule', () => {
   assert.ok(isFavorite(favs, '62041'));
   favs = toggleFavorite(favs, arras, day);
   assert.ok(!isFavorite(favs, '62041'));
-  assert.deepEqual(removeFavorite(favs, '59350'), []);
+  assert.deepEqual(visibleFavorites(removeFavorite(favs, '59350')), []);
 });
 
 test('favoris : stockage versionné et valeurs corrompues', () => {
@@ -52,7 +55,10 @@ test('favoris : export puis import', () => {
   assert.equal(file.version, 1);
   const parsed = parseFavoritesFile(JSON.stringify(file));
   assert.equal(parsed.ok, true);
-  assert.deepEqual(parsed.items, favs);
+  // Le fichier ne garde pas la date de modification : elle reprend la date d'ajout
+  assert.deepEqual(parsed.items, favs.map((f) => ({ ...f, modifie: f.ajoute })));
+  // Les favoris retirés ne sont pas exportés
+  assert.deepEqual(exportFavorites(removeFavorite(favs, '59350'), day).favoris, []);
 });
 
 test('favoris : fichier invalide', () => {

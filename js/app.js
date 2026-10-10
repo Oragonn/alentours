@@ -19,8 +19,10 @@ import {
   parseFavoritesFile,
   readStoredFavorites,
   removeFavorite,
+  replaceFavorites,
   setNote,
   toggleFavorite,
+  visibleFavorites,
   toStoredFavorites,
 } from './lib/favorites.js';
 import { distanceKm, zonesOverlap } from './lib/geo.js';
@@ -31,8 +33,10 @@ import { suggest } from './lib/suggest.js';
 import { searchSummary } from './lib/summary.js';
 import { formatCoords, formatNumber, parseDecimalInput, parseIntegerInput, resultsCountLabel } from './lib/text.js';
 import { decodeSearch, encodeSearch } from './lib/url.js';
+import { FIREBASE_CONFIG } from './firebase-config.js';
 import { MapView } from './map.js';
 import { load, loadJson, save, saveJson } from './storage.js';
+import { createSync } from './sync.js';
 import { effectiveTheme, initThemeControl, onThemeChange } from './theme.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { downloadFile, h } from './ui/dom.js';
@@ -75,6 +79,7 @@ let areaResults = [];
 let results = [];
 let resultIndex = new Map();
 let favorites = readStoredFavorites(loadJson(STORAGE_KEYS.favorites));
+let sync = null;
 let lastFocus = null;
 let sheetBeforeDetails = null;
 
@@ -131,6 +136,11 @@ const els = {
   importMerge: $('import-merge'),
   importReplace: $('import-replace'),
   importCancel: $('import-cancel'),
+  sync: $('sync'),
+  syncStatus: $('sync-status'),
+  syncSignIn: $('sync-signin'),
+  syncSignOut: $('sync-signout'),
+  syncDelete: $('sync-delete'),
 };
 
 document.title = APP_NAME;
@@ -736,9 +746,21 @@ document.addEventListener('keydown', (e) => {
 
 // ---- Favoris -------------------------------------------------------------
 
-function saveFavorites() {
+/** Enregistre les favoris sur l'appareil (et les envoie en ligne si connecté). */
+function saveFavorites({ fromSync = false } = {}) {
   saveJson(STORAGE_KEYS.favorites, toStoredFavorites(favorites));
-  els.favCount.textContent = favorites.length ? String(favorites.length) : '';
+  const n = visibleFavorites(favorites).length;
+  els.favCount.textContent = n ? String(n) : '';
+  if (!fromSync) sync?.notifyLocalChange();
+}
+
+/** Favoris reçus d'un autre appareil : mise à jour de l'affichage. */
+function applySyncedFavorites(items) {
+  favorites = items;
+  saveFavorites({ fromSync: true });
+  renderList();
+  if (state.view === 'favorites') renderFavorites();
+  if (state.selected && !els.details.hidden) renderDetails(state.selected);
 }
 
 function toggleFav(code) {
@@ -755,10 +777,16 @@ function toggleFav(code) {
 }
 
 function renderFavorites() {
-  els.favEmpty.hidden = favorites.length > 0;
-  els.favExport.disabled = favorites.length === 0;
-  els.favExportCsv.disabled = favorites.length === 0;
-  const rows = favorites.map((item) => {
+  const visible = visibleFavorites(favorites);
+  els.favEmpty.hidden = visible.length > 0;
+  els.favExport.disabled = visible.length === 0;
+  els.favExportCsv.disabled = visible.length === 0;
+  // Une note en cours de saisie ne doit pas être perdue si la liste est
+  // redessinée (par exemple à l'arrivée de favoris d'un autre appareil)
+  const editing = document.activeElement?.closest?.('#favorites-list li');
+  const editingCode = editing?.dataset.code;
+  const editingField = editing ? document.activeElement : null;
+  const rows = visible.map((item) => {
     const li = favoriteRow(item, data?.byCode.get(item.code), {
       data,
       onOpen: (code) => openDetails(code, 'fav'),
@@ -774,11 +802,19 @@ function renderFavorites() {
         saveFavorites();
       },
     });
-    li.querySelector('textarea').value = item.note;
+    const textarea = li.querySelector('textarea');
+    textarea.value = item.code === editingCode && editingField?.tagName === 'TEXTAREA' ? editingField.value : item.note;
     return li;
   });
   els.favList.replaceChildren(...rows);
-  const communes = favorites.map((f) => data?.byCode.get(f.code)).filter(Boolean);
+  if (editingCode && editingField?.tagName === 'TEXTAREA') {
+    const field = els.favList.querySelector(`li[data-code="${editingCode}"] textarea`);
+    if (field) {
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(editingField.selectionStart, editingField.selectionEnd);
+    }
+  }
+  const communes = visible.map((f) => data?.byCode.get(f.code)).filter(Boolean);
   mapView.showFavorites(communes);
   return communes;
 }
@@ -841,7 +877,9 @@ els.favExport.addEventListener('click', () => {
 
 els.favExportCsv.addEventListener('click', async () => {
   await ensureInsights();
-  const rows = favorites.map((f) => ({ fav: f, commune: data.byCode.get(f.code) })).filter((r) => r.commune);
+  const rows = visibleFavorites(favorites)
+    .map((f) => ({ fav: f, commune: data.byCode.get(f.code) }))
+    .filter((r) => r.commune);
   const base = communeColumns(data).map((col) => ({ header: col.header, value: (r) => col.value(r.commune) }));
   const extra = [
     { header: 'Catégorie', value: (c) => sizeCategory(c.population) },
@@ -877,14 +915,14 @@ els.favFile.addEventListener('change', async () => {
   }
   pendingImport = parsed.items;
   const n = parsed.items.length;
-  els.importText.textContent = `${n} ${n > 1 ? 'favoris' : 'favori'} dans le fichier. Que faire de vos ${favorites.length} favoris actuels ?`;
+  els.importText.textContent = `${n} ${n > 1 ? 'favoris' : 'favori'} dans le fichier. Que faire de vos ${visibleFavorites(favorites).length} favoris actuels ?`;
   els.importChoice.hidden = false;
   els.importMerge.focus();
 });
 
 function finishImport(mode) {
   if (!pendingImport) return;
-  favorites = mode === 'replace' ? pendingImport : mergeFavorites(favorites, pendingImport);
+  favorites = mode === 'replace' ? replaceFavorites(favorites, pendingImport) : mergeFavorites(favorites, pendingImport);
   pendingImport = null;
   els.importChoice.hidden = true;
   saveFavorites();
@@ -898,6 +936,49 @@ els.importReplace.addEventListener('click', () => finishImport('replace'));
 els.importCancel.addEventListener('click', () => {
   pendingImport = null;
   els.importChoice.hidden = true;
+});
+
+// ---- Synchronisation des favoris (facultative) ---------------------------
+
+function renderSyncState({ status, user, error }) {
+  els.sync.hidden = status === 'off';
+  if (status === 'off') return;
+  const who = user ? (user.name ? `${user.name} (${user.email})` : user.email) : '';
+  const texts = {
+    idle: 'Non connecté : vos favoris restent sur cet appareil.',
+    'signed-out': 'Non connecté : vos favoris restent sur cet appareil.',
+    loading: 'Connexion…',
+    syncing: `Connecté : ${who} · synchronisation…`,
+    synced: `Connecté : ${who} · favoris synchronisés`,
+    error: `La synchronisation a échoué (${error}). Vos favoris restent enregistrés sur cet appareil.`,
+  };
+  els.syncStatus.textContent = texts[status] ?? '';
+  els.syncStatus.classList.toggle('error', status === 'error');
+  els.syncSignIn.hidden = Boolean(user);
+  els.syncSignIn.disabled = status === 'loading';
+  els.syncSignOut.hidden = !user;
+  els.syncDelete.hidden = !user;
+}
+
+function initSync() {
+  sync = createSync({
+    config: FIREBASE_CONFIG,
+    getLocal: () => favorites,
+    setLocal: applySyncedFavorites,
+    onState: renderSyncState,
+    flag: { get: () => load(STORAGE_KEYS.sync), set: (v) => save(STORAGE_KEYS.sync, v) },
+  });
+  sync.start();
+}
+
+els.syncSignIn.addEventListener('click', () => sync?.signIn());
+els.syncSignOut.addEventListener('click', () => sync?.signOut());
+els.syncDelete.addEventListener('click', () => {
+  if (window.confirm('Supprimer les favoris enregistrés en ligne ? Ils restent sur cet appareil.')) sync?.deleteRemote();
+});
+// Envoie les dernières modifications avant que la page soit quittée ou masquée
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') sync?.flush();
 });
 
 // ---- URL, partage, export, impression ------------------------------------
@@ -1067,7 +1148,8 @@ async function start() {
   applyUrlState();
   renderPoints();
   renderSortDir();
-  saveFavorites();
+  saveFavorites({ fromSync: true });
+  initSync();
   const hadPoints = setPoints().length > 0;
   runSearch({ fit: hadPoints });
   // Les données complémentaires (tendance, prix) sont chargées à la demande :
