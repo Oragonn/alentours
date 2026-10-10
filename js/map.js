@@ -1,9 +1,9 @@
 // Carte Leaflet : fonds de carte, cercles de recherche, marqueurs des communes.
 
 /* global L */
-import { FRANCE_BOUNDS, LABELS, MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
+import { FRANCE_BOUNDS, LABELS, MAP_START, MARKER, RINGS, STORAGE_KEYS } from './config.js';
 import { labelMinPopulation, placeLabels } from './lib/labels.js';
-import { boundingBox, KM_PER_DEGREE, markerRadius } from './lib/geo.js';
+import { boundingBox, KM_PER_DEGREE, markerRadius, ringDistances } from './lib/geo.js';
 import { sizeCategoryOf } from './lib/commune.js';
 import { load, save } from './storage.js';
 
@@ -296,28 +296,33 @@ export class MapView {
   }
 
   drawRings(p, color) {
-    for (let d = RING_INTERVAL_KM; d < p.radius; d += RING_INTERVAL_KM) {
+    const label = (d) =>
+      L.marker([p.lat + d / KM_PER_DEGREE, p.lon], {
+        icon: L.divIcon({ className: 'ring-label', html: `<span>${String(d).replace('.', ',')} km</span>`, iconSize: [0, 0] }),
+        interactive: false,
+        keyboard: false,
+      }).addTo(this.ringsLayer);
+    for (const d of ringDistances(p.radius, RINGS)) {
       L.circle([p.lat, p.lon], {
         radius: d * 1000,
         renderer: this.zonesRenderer,
         color,
-        weight: 1.2,
-        opacity: 0.8,
-        dashArray: '6 6',
+        weight: 1.6,
+        opacity: 0.95,
+        dashArray: '6 5',
         fill: false,
         interactive: false,
       }).addTo(this.ringsLayer);
-      L.marker([p.lat + d / KM_PER_DEGREE, p.lon], {
-        icon: L.divIcon({ className: 'ring-label', html: `<span>${d} km</span>`, iconSize: [0, 0] }),
-        interactive: false,
-        keyboard: false,
-      }).addTo(this.ringsLayer);
+      label(d);
     }
+    // Le cercle de recherche porte aussi son rayon
+    label(p.radius);
   }
 
   setRings(on) {
     this.rings = on;
     this.drawZones();
+    this.updateLabels();
   }
 
   categoryColors() {
@@ -391,7 +396,18 @@ export class MapView {
         population: commune.population,
       });
     }
-    const placed = placeLabels(candidates, { width: size.x, height: size.y, maxCount: LABELS.maxCount });
+    // Les noms évitent les étiquettes des cercles de distance (« 10 km »…)
+    const obstacles = [];
+    if (this.rings) {
+      for (const p of this.points) {
+        if (!p) continue;
+        for (const d of [...ringDistances(p.radius, RINGS), p.radius]) {
+          const pt = this.map.latLngToContainerPoint([p.lat + d / KM_PER_DEGREE, p.lon]);
+          obstacles.push({ left: pt.x - 26, top: pt.y - 10, width: 52, height: 20 });
+        }
+      }
+    }
+    const placed = placeLabels(candidates, { width: size.x, height: size.y, maxCount: LABELS.maxCount, obstacles });
     for (const { commune, r } of placed) {
       const span = document.createElement('span');
       span.textContent = commune.nom;

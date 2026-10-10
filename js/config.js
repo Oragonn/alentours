@@ -16,8 +16,9 @@ export const UNKNOWN_CATEGORY = { id: 'inconnue', label: 'Inconnue' };
 
 export const RADIUS = { min: 1, max: 100, step: 1, default: 20 };
 
-// Intervalle des cercles de distance, en km
-export const RING_INTERVAL_KM = 10;
+// Cercles de distance : l'écart s'adapte au rayon pour en avoir environ
+// RINGS.target, choisi parmi des valeurs rondes (km).
+export const RINGS = { steps: [1, 2, 5, 10, 20, 25], target: 4 };
 
 // Taille des marqueurs : échelle racine carrée, bornée. En zoomant, les
 // points grossissent (× zoomGrowth par niveau au-delà de zoomFrom, jusqu'à

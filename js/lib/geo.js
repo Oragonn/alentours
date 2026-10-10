@@ -34,6 +34,22 @@ export function boundingBox(lat, lon, radiusKm) {
   return { minLat, maxLat, minLon, maxLon, wrapsLon: minLon < -180 || maxLon > 180 };
 }
 
+/**
+ * Écart entre les cercles de distance : la plus petite valeur ronde qui donne
+ * au plus `target` cercles dans le rayon (le cercle du rayon compris).
+ */
+export function ringInterval(radiusKm, { steps, target }) {
+  return steps.find((s) => radiusKm / s <= target) ?? steps[steps.length - 1];
+}
+
+/** Rayons des cercles intérieurs (sans le cercle de recherche lui-même). */
+export function ringDistances(radiusKm, cfg) {
+  const step = ringInterval(radiusKm, cfg);
+  const out = [];
+  for (let d = step; d < radiusKm - 1e-9; d += step) out.push(d);
+  return out;
+}
+
 /** Les cercles se chevauchent-ils deux à deux ? */
 export function zonesOverlap(points) {
   for (let i = 0; i < points.length; i++) {

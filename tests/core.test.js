@@ -149,3 +149,24 @@ test('noms sur la carte : seuil selon le zoom et sans chevauchement', async () =
   assert.deepEqual(placed.map((p) => p.code), ['b', 'c']);
   assert.equal(placeLabels(items, { width: 800, height: 600, maxCount: 1 }).length, 1);
 });
+
+test('cercles de distance : écart adapté au rayon', async () => {
+  const { ringInterval, ringDistances } = await import('../js/lib/geo.js');
+  const { RINGS } = await import('../js/config.js');
+  assert.equal(ringInterval(4, RINGS), 1);
+  assert.equal(ringInterval(20, RINGS), 5);
+  assert.equal(ringInterval(30, RINGS), 10);
+  assert.equal(ringInterval(100, RINGS), 25);
+  assert.deepEqual(ringDistances(20, RINGS), [5, 10, 15]);
+  assert.deepEqual(ringDistances(30, RINGS), [10, 20]);
+  assert.deepEqual(ringDistances(12.5, RINGS), [5, 10]);
+  assert.deepEqual(ringDistances(1, RINGS), []);
+});
+
+test('noms sur la carte : évitent les obstacles', async () => {
+  const { placeLabels } = await import('../js/lib/labels.js');
+  const items = [{ code: 'a', name: 'Évergnicourt', x: 100, y: 100, r: 4, population: 700 }];
+  assert.equal(placeLabels(items, { width: 800, height: 600 }).length, 1);
+  const obstacles = [{ left: 110, top: 92, width: 52, height: 20 }];
+  assert.equal(placeLabels(items, { width: 800, height: 600, obstacles }).length, 0);
+});

@@ -14,11 +14,13 @@ export function labelMinPopulation(zoom, steps) {
  *
  * items : [{ code, name, x, y, r, population }] (x, y en pixels à l'écran ;
  *         r = rayon du point). Le nom est placé à droite du point.
+ * obstacles : rectangles déjà occupés (étiquettes des cercles de distance…).
  * Renvoie les éléments retenus, avec leur rectangle { left, top, width, height }.
  */
-export function placeLabels(items, { width, height, maxCount = 250, charWidth = 6.8, lineHeight = 16, gap = 3 }) {
+export function placeLabels(items, { width, height, maxCount = 250, charWidth = 6.8, lineHeight = 16, gap = 3, obstacles = [] }) {
   const sorted = [...items].sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
   const placed = [];
+  const blocked = obstacles.map((box) => ({ box }));
   for (const it of sorted) {
     if (placed.length >= maxCount) break;
     const box = {
@@ -28,7 +30,7 @@ export function placeLabels(items, { width, height, maxCount = 250, charWidth = 
       height: lineHeight,
     };
     if (box.left + box.width < 0 || box.left > width || box.top + box.height < 0 || box.top > height) continue;
-    const overlaps = placed.some(
+    const overlaps = [...blocked, ...placed].some(
       (p) =>
         box.left < p.box.left + p.box.width + gap &&
         p.box.left < box.left + box.width + gap &&
