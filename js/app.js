@@ -313,6 +313,11 @@ function renderPoints() {
     });
     input.value = pointLabel(p);
     const listbox = h('ul', { id: listId, class: 'suggestions', hidden: true, 'aria-label': 'Suggestions' });
+    const clearBtn = h(
+      'button',
+      { type: 'button', class: 'combo-clear', 'aria-label': 'Effacer la ville', title: 'Effacer', hidden: !input.value },
+      '✕'
+    );
     const range = h('input', {
       type: 'range',
       min: RADIUS.min,
@@ -343,7 +348,7 @@ function renderPoints() {
           '✕'
         )
       ),
-      h('div', { class: 'combo' }, input, listbox),
+      h('div', { class: 'combo' }, input, clearBtn, listbox),
       h(
         'div',
         { class: 'field' },
@@ -360,11 +365,23 @@ function renderPoints() {
       suggest: (q) => suggest(data, q),
       onSelect: (commune) => setPointCommune(i, commune),
     });
+    input.addEventListener('input', () => (clearBtn.hidden = !input.value));
     input.addEventListener('blur', () => {
-      // Texte modifié sans choisir de suggestion : on réaffiche le point actuel
       setTimeout(() => {
-        if (document.activeElement !== input && isSet(p)) input.value = pointLabel(p);
+        if (document.activeElement === input || document.activeElement === clearBtn) return;
+        // Champ vidé : plus de point de départ ; texte modifié sans choisir de
+        // suggestion : on réaffiche le point actuel
+        if (!input.value.trim()) {
+          if (isSet(p)) clearPoint(i);
+        } else if (isSet(p)) {
+          input.value = pointLabel(p);
+        }
+        clearBtn.hidden = !input.value;
       }, 150);
+    });
+    clearBtn.addEventListener('click', () => {
+      clearPoint(i);
+      input.focus();
     });
 
     range.addEventListener('input', () => {
@@ -427,9 +444,28 @@ function setPointCommune(i, commune) {
   p.lon = commune.lon;
   p.name = commune.nom;
   p.el.input.value = pointLabel(p);
+  const clear = p.el.block.querySelector('.combo-clear');
+  if (clear) clear.hidden = false;
   closeDetails();
   runSearch({ fit: true });
   ensureInsights();
+}
+
+/** Retire le point de départ (champ vidé ou bouton ✕). */
+function clearPoint(i) {
+  const p = state.points[i];
+  if (!p) return;
+  p.commune = null;
+  p.lat = null;
+  p.lon = null;
+  p.name = '';
+  if (p.el) {
+    p.el.input.value = '';
+    const clear = p.el.block.querySelector('.combo-clear');
+    if (clear) clear.hidden = true;
+  }
+  closeDetails();
+  runSearch({ fit: false });
 }
 
 function addPoint() {
