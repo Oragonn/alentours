@@ -248,7 +248,8 @@ export class MapView {
   // ---- Recherche ---------------------------------------------------------
 
   /** Dessine les cercles, les points de départ et les marqueurs. */
-  render({ points, colors, results, names }) {
+  render({ points, colors, results, names, favorites }) {
+    if (favorites) this.favoriteCodes = favorites;
     this.points = points;
     this.colors = colors;
     this.names = names;
@@ -338,8 +339,23 @@ export class MapView {
     };
   }
 
+  /** Codes des communes favorites (anneau doré sur leur point). */
+  setFavorites(codes) {
+    this.favoriteCodes = codes;
+    this.restyleMarkers();
+  }
+
   markerStyle(commune, colors) {
     const cat = sizeCategoryOf(commune.population).id;
+    if (this.favoriteCodes?.has(commune.code)) {
+      return {
+        radius: markerRadius(commune.population, MARKER, this.map.getZoom()) + 1,
+        color: '#f5b301',
+        weight: 3.5,
+        fillColor: colors[cat],
+        fillOpacity: 0.95,
+      };
+    }
     return {
       radius: markerRadius(commune.population, MARKER, this.map.getZoom()),
       color: colors.stroke,

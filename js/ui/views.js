@@ -139,7 +139,7 @@ function priceCell(insights, commune) {
 }
 
 /** Contenu de la fiche commune */
-export function detailsContent(commune, { data, result, pointNames, isFav, insights, onClose, onToggleFav }) {
+export function detailsContent(commune, { data, result, pointNames, isFav, insights, onClose, onToggleFav, onSearchAround }) {
   const value = (v) => (v == null || v === '' ? h('span', { class: 'muted' }, NA) : v);
   const dens = density(commune.population, commune.surface);
   const cps = commune.codesPostaux ?? [];
@@ -201,11 +201,16 @@ export function detailsContent(commune, { data, result, pointNames, isFav, insig
       },
       isFav ? '★ Retirer des favoris' : '☆ Ajouter aux favoris'
     ),
+    h(
+      'button',
+      { type: 'button', class: 'btn btn-secondary details-around', onclick: onSearchAround },
+      `Chercher autour de ${commune.nom}`
+    ),
   ];
 }
 
 /** Élément de la liste des favoris */
-export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote }) {
+export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote, selected, selectDisabled, onSelect, onSearchAround }) {
   const noteId = `note-${item.code}`;
   const sub = commune
     ? `${departementLabel(commune.dep, data.departements)} · ${populationText(commune.population)}`
@@ -244,8 +249,94 @@ export function favoriteRow(item, commune, { data, onOpen, onRemove, onNote }) {
           onNote(item.code, e.target.value);
         },
       })
+    ),
+    commune
+      ? h(
+          'div',
+          { class: 'fav-actions' },
+          h(
+            'label',
+            { class: 'fav-compare' },
+            h('input', {
+              type: 'checkbox',
+              checked: selected,
+              disabled: selectDisabled && !selected,
+              onchange: (e) => onSelect(item.code, e.target.checked),
+            }),
+            ' Comparer'
+          ),
+          h(
+            'button',
+            { type: 'button', class: 'btn btn-ghost', onclick: () => onSearchAround(item.code) },
+            'Chercher autour'
+          )
+        )
+      : null
+  );
+}
+
+/** Tableau de comparaison (modèle fourni par lib/compare.js) */
+export function comparisonTableElement({ columns, rows }) {
+  return h(
+    'table',
+    { class: 'compare-table' },
+    h(
+      'thead',
+      {},
+      h(
+        'tr',
+        {},
+        h('th', { scope: 'col' }, h('span', { class: 'visually-hidden' }, 'Critère')),
+        columns.map((c) => h('th', { scope: 'col' }, c.nom, ' ', h('span', { class: 'r-dep' }, `(${c.dep})`)))
+      )
+    ),
+    h(
+      'tbody',
+      {},
+      rows.map((row) =>
+        h(
+          'tr',
+          { class: row.key === 'note' ? 'compare-note' : null },
+          h('th', { scope: 'row' }, row.label),
+          row.cells.map((cell, i) =>
+            row.best.includes(i)
+              ? h('td', { class: 'best' }, cell.text, h('span', { class: 'visually-hidden' }, ' (meilleure valeur)'))
+              : h('td', {}, cell.text)
+          )
+        )
+      )
     )
   );
+}
+
+/** Version imprimable des favoris : une fiche par commune, avec la note. */
+export function favoritesPrintContent({ appName, items, data, insights, pointNames }) {
+  const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long', timeStyle: 'short' }).format(new Date());
+  const cards = items.map(({ fav, commune, result }) => {
+    const dens = density(commune.population, commune.surface);
+    const facts = [
+      ['Population', Number.isFinite(commune.population) ? `${formatNumber(commune.population)} habitants` : NA],
+      ['Catégorie', sizeCategoryOf(commune.population).label],
+      ['Superficie', Number.isFinite(commune.surface) ? `${formatNumber(commune.surface, 1)}${NBSP}km²` : NA],
+      ['Densité', dens != null ? `${formatNumber(dens)}${NBSP}hab./km²` : NA],
+    ];
+    if (insights.trend) facts.push(['Tendance', trendText(insights.trend.get(commune.code))]);
+    if (insights.prices) facts.push(['Prix médian au m²', priceInfo(insights.prices.get(commune.code), commune.dep, insights.pricesMeta).label]);
+    if (result) facts.push(['Distance', distanceText(result, pointNames)]);
+    return h(
+      'article',
+      { class: 'print-fav' },
+      h('h2', {}, `${commune.nom} (${commune.dep})`),
+      h('p', { class: 'print-fav-sub' }, `${departementLabel(commune.dep, data.departements)} · ${data.regions[commune.reg] ?? ''} · code postal ${commune.codesPostaux.join(', ')}`),
+      h('dl', {}, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+      h('p', { class: 'print-fav-note' }, h('strong', {}, 'Note : '), fav.note || '—')
+    );
+  });
+  return [
+    h('h1', {}, `${appName} — mes favoris`),
+    h('p', { class: 'print-meta' }, `${items.length} ${items.length > 1 ? 'communes' : 'commune'} · imprimé le ${date} · Données : INSEE / geo.api.gouv.fr`),
+    ...cards,
+  ];
 }
 
 /** Version imprimable : titre, résumé, date et tableau complet */

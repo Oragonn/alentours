@@ -25,6 +25,7 @@ import {
   visibleFavorites,
   toStoredFavorites,
 } from './lib/favorites.js';
+import { comparisonTable } from './lib/compare.js';
 import { distanceKm, zonesOverlap } from './lib/geo.js';
 import { priceInfo, trendText } from './lib/insights.js';
 import { adminFacets, filterByAdmin, searchArea, validatePopulation } from './lib/search.js';
@@ -41,7 +42,14 @@ import { effectiveTheme, initThemeControl, onThemeChange } from './theme.js';
 import { attachAutocomplete } from './ui/autocomplete.js';
 import { downloadFile, h } from './ui/dom.js';
 import { createSheet } from './ui/sheet.js';
-import { detailsContent, favoriteRow, printContent, resultRow } from './ui/views.js';
+import {
+  comparisonTableElement,
+  detailsContent,
+  favoriteRow,
+  favoritesPrintContent,
+  printContent,
+  resultRow,
+} from './ui/views.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -71,6 +79,8 @@ const state = {
   sort: { key: 'distance', dir: 'asc' },
   rings: load(STORAGE_KEYS.rings) === '1',
   view: 'results',
+  favoritesOnly: false,
+  compare: new Set(),
   selected: null,
   shown: LIST_PAGE_SIZE,
 };
@@ -136,6 +146,14 @@ const els = {
   importMerge: $('import-merge'),
   importReplace: $('import-replace'),
   importCancel: $('import-cancel'),
+  favoritesOnly: $('favorites-only'),
+  favoritesTools: $('favorites-tools'),
+  compareOpen: $('compare-open'),
+  compareHint: $('compare-hint'),
+  favoritesPrint: $('favorites-print'),
+  compareDialog: $('compare'),
+  compareBody: $('compare-body'),
+  compareClose: $('compare-close'),
   sync: $('sync'),
   syncStatus: $('sync-status'),
   syncSignIn: $('sync-signin'),
@@ -411,7 +429,8 @@ function runSearch({ fit = false } = {}) {
     state.departements = state.departements.filter((code) => state.regions.includes(data.depRegion.get(code)));
   }
   renderFilters();
-  const filtered = filterByAdmin(areaResults, state);
+  let filtered = filterByAdmin(areaResults, state);
+  if (state.favoritesOnly) filtered = filtered.filter((r) => isFavorite(favorites, r.commune.code));
   results = sortResults(filtered, state.sort.key, state.sort.dir);
   resultIndex = new Map(results.map((r) => [r.commune.code, r]));
   state.shown = LIST_PAGE_SIZE;
@@ -434,6 +453,7 @@ function runSearch({ fit = false } = {}) {
     colors: state.points.map((_, i) => pointColor(i)),
     names: state.points.map((p) => p.name),
     results,
+    favorites: favoriteCodes(),
   });
   if (fit && points.length) mapView.fitPoints(points);
   updateUrl();
@@ -462,6 +482,9 @@ function renderCount(points) {
   } else if (state.popError) {
     els.hint.hidden = false;
     els.hint.textContent = 'Corrigez la population pour relancer la recherche.';
+  } else if (!results.length && state.favoritesOnly) {
+    els.hint.hidden = false;
+    els.hint.textContent = 'Aucun de vos favoris dans cette zone.';
   } else if (!results.length) {
     els.hint.hidden = false;
     els.hint.textContent = 'Aucune commune ne correspond. Essayez un rayon plus grand ou moins de filtres.';
@@ -661,6 +684,7 @@ function renderDetails(code) {
       insights,
       onClose: closeDetails,
       onToggleFav: () => toggleFav(code),
+      onSearchAround: () => searchAround(code),
     })
   );
 }
@@ -734,9 +758,32 @@ function saveFavorites({ fromSync = false } = {}) {
 function applySyncedFavorites(items) {
   favorites = items;
   saveFavorites({ fromSync: true });
-  renderList();
+  favoritesChanged();
   if (state.view === 'favorites') renderFavorites();
   if (state.selected && !els.details.hidden) renderDetails(state.selected);
+}
+
+const favoriteCodes = () => new Set(visibleFavorites(favorites).map((f) => f.code));
+
+/** Les favoris ont changé : liste, carte (anneaux dorés) et filtre « Favoris seulement ». */
+function favoritesChanged() {
+  for (const code of state.compare) if (!isFavorite(favorites, code)) state.compare.delete(code);
+  if (state.favoritesOnly) runSearch();
+  else {
+    renderList();
+    mapView.setFavorites(favoriteCodes());
+  }
+}
+
+/** Fait d'une commune le point de départ (le point actif s'il y en a plusieurs). */
+function searchAround(code) {
+  const commune = data?.byCode.get(code);
+  if (!commune) return;
+  if (els.compareDialog.open) els.compareDialog.close();
+  const i = state.points.length > 1 ? Math.min(state.active, state.points.length - 1) : 0;
+  setView('results');
+  setPointCommune(i, commune);
+  if (sheet.isMobile()) sheet.setState('half');
 }
 
 function toggleFav(code) {
@@ -744,7 +791,7 @@ function toggleFav(code) {
   if (!commune) return;
   favorites = toggleFavorite(favorites, commune);
   saveFavorites();
-  renderList();
+  favoritesChanged();
   if (state.selected === code && !els.details.hidden) {
     renderDetails(code);
     els.detailsInner.querySelector('.details-fav')?.focus({ preventScroll: true });
@@ -757,6 +804,12 @@ function renderFavorites() {
   els.favEmpty.hidden = visible.length > 0;
   els.favExport.disabled = visible.length === 0;
   els.favExportCsv.disabled = visible.length === 0;
+  els.favoritesTools.hidden = visible.length === 0;
+  const n = state.compare.size;
+  els.compareOpen.disabled = n < 2;
+  els.compareOpen.textContent = n ? `Comparer (${n})` : 'Comparer';
+  els.compareHint.textContent =
+    n >= 5 ? '5 favoris au maximum.' : 'Cochez « Comparer » sur 2 à 5 favoris pour les voir côte à côte.';
   // Une note en cours de saisie ne doit pas être perdue si la liste est
   // redessinée (par exemple à l'arrivée de favoris d'un autre appareil)
   const editing = document.activeElement?.closest?.('#favorites-list li');
@@ -770,13 +823,22 @@ function renderFavorites() {
         favorites = removeFavorite(favorites, code);
         saveFavorites();
         renderFavorites();
-        renderList();
+        favoritesChanged();
         if (state.selected === code && !els.details.hidden) renderDetails(code);
       },
       onNote: (code, note) => {
         favorites = setNote(favorites, code, note);
         saveFavorites();
       },
+      selected: state.compare.has(item.code),
+      selectDisabled: state.compare.size >= 5,
+      onSelect: (code, on) => {
+        if (on) state.compare.add(code);
+        else state.compare.delete(code);
+        renderFavorites();
+        els.favList.querySelector(`li[data-code="${code}"] .fav-compare input`)?.focus({ preventScroll: true });
+      },
+      onSearchAround: (code) => searchAround(code),
     });
     const textarea = li.querySelector('textarea');
     textarea.value = item.code === editingCode && editingField?.tagName === 'TEXTAREA' ? editingField.value : item.note;
@@ -1032,6 +1094,16 @@ els.share.addEventListener('click', async () => {
 });
 
 function buildPrintView() {
+  if (data && state.view === 'favorites') {
+    const items = visibleFavorites(favorites)
+      .map((fav) => ({ fav, commune: data.byCode.get(fav.code) }))
+      .filter((it) => it.commune)
+      .map((it) => ({ ...it, result: resultFor(it.commune) }));
+    els.printView.replaceChildren(
+      ...favoritesPrintContent({ appName: APP_NAME, items, data, insights, pointNames: pointNames() })
+    );
+    return;
+  }
   if (!data || !setPoints().length) {
     els.printView.replaceChildren();
     return;
@@ -1054,6 +1126,46 @@ els.print.addEventListener('click', async () => {
   window.print();
 });
 window.addEventListener('beforeprint', buildPrintView);
+
+els.favoritesPrint.addEventListener('click', async () => {
+  await ensureInsights();
+  buildPrintView();
+  window.print();
+});
+
+// ---- Comparaison des favoris ----------------------------------------------
+
+async function openComparison() {
+  await ensureInsights();
+  const communes = [...state.compare].map((code) => data.byCode.get(code)).filter(Boolean);
+  if (communes.length < 2) return;
+  const table = comparisonTable(communes, {
+    data,
+    trendSeries: insights.trend ? (code) => insights.trend.get(code) : null,
+    prices: insights.prices ? (code) => insights.prices.get(code) : null,
+    pricesMeta: insights.pricesMeta ?? {},
+    points: setPoints().map((p) => ({ name: p.commune ? p.commune.nom : 'le point', lat: p.lat, lon: p.lon })),
+    distanceKm,
+    notes: (code) => favorites.find((f) => f.code === code)?.note ?? '',
+  });
+  els.compareBody.replaceChildren(comparisonTableElement(table));
+  els.compareDialog.showModal();
+  els.compareBody.scrollLeft = 0;
+}
+
+els.compareOpen.addEventListener('click', openComparison);
+els.compareClose.addEventListener('click', () => els.compareDialog.close());
+// Clic sur le fond assombri : fermeture
+els.compareDialog.addEventListener('click', (e) => {
+  if (e.target === els.compareDialog) els.compareDialog.close();
+});
+
+// ---- Favoris seulement ----------------------------------------------------
+
+els.favoritesOnly.addEventListener('change', () => {
+  state.favoritesOnly = els.favoritesOnly.checked;
+  runSearch();
+});
 
 // ---- Chargement ----------------------------------------------------------
 

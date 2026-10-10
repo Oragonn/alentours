@@ -151,3 +151,42 @@ test('résumé de la recherche', () => {
 test('lecture CSV DVF', () => {
   assert.deepEqual(parseCsvLine('a,"b, c",,"d ""e"""'), ['a', 'b, c', '', 'd "e"']);
 });
+
+test('comparaison : meilleures valeurs', async () => {
+  const { bestIndexes, comparisonTable } = await import('../js/lib/compare.js');
+  const { distanceKm } = await import('../js/lib/geo.js');
+  assert.deepEqual(bestIndexes([3, 1, 2], 'min'), [1]);
+  assert.deepEqual(bestIndexes([3, 1, 3], 'max'), [0, 2]);
+  assert.deepEqual(bestIndexes([2, 2], 'min'), [], 'toutes égales : rien');
+  assert.deepEqual(bestIndexes([5, null], 'min'), [], 'une seule valeur connue');
+  assert.deepEqual(bestIndexes([5, 1], null), []);
+
+  const communes = [
+    { code: '59350', nom: 'Lille', dep: '59', reg: '32', population: 238246, surface: 34.83, lat: 50.6311, lon: 3.0468 },
+    { code: '62041', nom: 'Arras', dep: '62', reg: '32', population: 41000, surface: 11.63, lat: 50.29, lon: 2.78 },
+    { code: '67482', nom: 'Strasbourg', dep: '67', reg: '44', population: 291000, surface: 78.26, lat: 48.57, lon: 7.75 },
+  ];
+  const table = comparisonTable(communes, {
+    data: { departements: { 59: 'Nord', 62: 'Pas-de-Calais', 67: 'Bas-Rhin' }, regions: { 32: 'Hauts-de-France', 44: 'Grand Est' } },
+    trendSeries: (code) => ({ years: [2013, 2023], values: code === '62041' ? [40000, 41000] : code === '59350' ? [230000, 238246] : [280000, 280100] }),
+    prices: (code) =>
+      code === '59350'
+        ? { maison: { prix: 2823, ventes: 4834 }, appartement: { prix: 3763, ventes: 14230 } }
+        : { maison: { prix: 1900, ventes: 900 }, appartement: { prix: 2100, ventes: 700 } },
+    pricesMeta: { periode: '2021–2025' },
+    points: [{ name: 'Lille', lat: 50.6311, lon: 3.0468 }],
+    distanceKm,
+    notes: (code) => (code === '59350' ? 'Vieux-Lille' : ''),
+  });
+  const row = (key) => table.rows.find((r) => r.key === key);
+  assert.deepEqual(table.columns.map((c) => c.nom), ['Lille', 'Arras', 'Strasbourg']);
+  // Lille : plus forte hausse (+3,6 %) et distance 0 ; Arras : prix les plus bas
+  assert.deepEqual(row('tendance').best, [0]);
+  assert.deepEqual(row('prixMaison').best, [1], 'Strasbourg (non couvert par DVF) ignoré');
+  assert.equal(row('prixMaison').cells[2].text, 'Non couvert par DVF');
+  assert.deepEqual(row('distance-Lille').best, [0]);
+  assert.deepEqual(row('population').best, [], 'population : pas de « meilleure » valeur');
+  assert.equal(row('note').cells[0].text, 'Vieux-Lille');
+  assert.equal(row('note').cells[1].text, '—');
+  assert.equal(row('ventes').label, 'Ventes DVF (2021–2025)');
+});
