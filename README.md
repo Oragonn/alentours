@@ -53,6 +53,7 @@ Données complémentaires (Phase 2) :
 ```bash
 node scripts/build-population-history.mjs   # data/population-trend.json (INSEE)
 node scripts/build-dvf.mjs                  # data/prix.json (DVF, data.gouv.fr)
+node scripts/build-amenities.mjs            # data/equipements.json (INSEE, BPE)
 npm run data:all                            # les trois scripts à la suite
 ```
 
@@ -157,6 +158,14 @@ Le nom « Alentours » est provisoire : il est défini dans `js/config.js`
 - Fond « Plan » : © les contributeurs d'OpenStreetMap (ODbL). En mode sombre,
   les mêmes tuiles sont assombries par un filtre CSS : les fonds sombres
   gratuits (CARTO Dark Matter…) exigent désormais une clé d'API.
+- Équipements (écoles, collèges, lycées, crèches, médecins, pharmacies,
+  supermarchés, boulangeries, poste, gares) : INSEE, Base permanente des
+  équipements (plateforme Melodi, jeu DS_BPE).
+- Temps de trajet en voiture et zones « à X min » : services d'itinéraire et
+  d'isochrone de la Géoplateforme IGN (gratuits, sans clé), appelés seulement
+  à la demande ; la distance à vol d'oiseau reste affichée.
+- Budget : prix médian au m² DVF × surface ; indication, pas une estimation
+  d'un bien (écart possible de 15 à 25 %).
 - Fond « Satellite » : orthophotographies IGN – Géoplateforme, avec repli sur
   Esri World Imagery si la Géoplateforme ne répond pas.
 - Si le site devient public avec beaucoup de trafic, respectez la

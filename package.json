@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "data": "node scripts/build-communes.mjs && node scripts/stamp.mjs",
-    "data:all": "node scripts/build-communes.mjs && node scripts/build-population-history.mjs && node scripts/build-dvf.mjs && node scripts/stamp.mjs",
+    "data:all": "node scripts/build-communes.mjs && node scripts/build-population-history.mjs && node scripts/build-dvf.mjs && node scripts/build-amenities.mjs && node scripts/stamp.mjs",
     "start": "npx --yes serve@14.2.4 .",
     "stamp": "node scripts/stamp.mjs"
   },

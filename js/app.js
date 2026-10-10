@@ -2,6 +2,7 @@
 
 import {
   APP_NAME,
+  DVF_MIN_SALES,
   LIST_PAGE_SIZE,
   MAX_STARTING_POINTS,
   POINT_COLORS,
@@ -14,6 +15,7 @@ import { communeLabel, departementLabel, sizeCategory } from './lib/commune.js';
 import { communeColumns, toCsv } from './lib/csv.js';
 import {
   isFavorite,
+  STATUSES,
   readStoredFavorites,
   removeFavorite,
   toggleFavorite,
@@ -31,12 +33,16 @@ import {
   migrateFavoriteNotes,
   removeFromFolder,
   renameFolder,
+  setFolderBrief,
   setFolderNote,
+  setFolderStatus,
   visibleFolders,
 } from './lib/folders.js';
 import { exportUserData, importUserData, parseUserDataFile } from './lib/userdata.js';
 import { comparisonTable } from './lib/compare.js';
-import { distanceKm, zonesOverlap } from './lib/geo.js';
+import { directionsUrl, distanceKm, pointInGeometry, visitOrder, zonesOverlap } from './lib/geo.js';
+import { budgetCheck, budgetIsSet, formatEuros, PROPERTY_TYPES } from './lib/budget.js';
+import { formatDuration, isochrone, travelTime } from './routing.js';
 import { priceInfo, trendText } from './lib/insights.js';
 import { adminFacets, filterByAdmin, searchArea, validatePopulation } from './lib/search.js';
 import { sortResults } from './lib/sort.js';
@@ -53,6 +59,8 @@ import { attachAutocomplete } from './ui/autocomplete.js';
 import { downloadFile, h } from './ui/dom.js';
 import { createSheet } from './ui/sheet.js';
 import {
+  briefCard,
+  clientReportContent,
   comparisonTableElement,
   detailsContent,
   favoriteRow,
@@ -93,6 +101,13 @@ const state = {
   view: 'results',
   favoritesOnly: false,
   openFolder: null,
+  statusFilter: 'all',
+  editingBrief: false,
+  budget: null,
+  budgetOnly: false,
+  driveMax: null,
+  driveZones: null,
+  driveError: null,
   pickerCode: null,
   compare: new Set(),
   selected: null,
@@ -163,6 +178,30 @@ const els = {
   importCancel: $('import-cancel'),
   favoritesOnly: $('favorites-only'),
   tabFolders: $('tab-folders'),
+  driveMax: $('drive-max'),
+  driveStatus: $('drive-status'),
+  budgetBox: $('budget-box'),
+  budgetBadge: $('budget-badge'),
+  budgetAmount: $('budget-amount'),
+  budgetSurface: $('budget-surface'),
+  budgetType: $('budget-type'),
+  budgetOnly: $('budget-only'),
+  budgetLegend: $('budget-legend'),
+  budgetClear: $('budget-clear'),
+  briefView: $('brief-view'),
+  briefEdit: $('brief-edit'),
+  briefForm: $('brief-form'),
+  briefClient: $('brief-client'),
+  briefBudget: $('brief-budget'),
+  briefSurface: $('brief-surface'),
+  briefType: $('brief-type'),
+  briefTravail: $('brief-travail'),
+  briefCriteres: $('brief-criteres'),
+  briefCancel: $('brief-cancel'),
+  briefApply: $('brief-apply'),
+  folderRoute: $('folder-route'),
+  folderFeedback: $('folder-feedback'),
+  statusFilter: $('status-filter'),
   viewFolders: $('view-folders'),
   foldersCount: $('folders-count'),
   foldersHome: $('folders-home'),
@@ -509,7 +548,19 @@ function runSearch({ fit = false } = {}) {
   renderFilters();
   let filtered = filterByAdmin(areaResults, state);
   if (state.favoritesOnly) filtered = filtered.filter((r) => isFavorite(favorites, r.commune.code));
-  results = sortResults(filtered, state.sort.key, state.sort.dir);
+  // Trajet max en voiture : communes dont le centre est dans toutes les zones
+  ensureDriveZones();
+  const zones = driveZonesReady() ? state.driveZones.geoms : null;
+  if (zones) filtered = filtered.filter((r) => zones.every((g) => pointInGeometry(r.commune.lat, r.commune.lon, g)));
+  // Budget : il faut les prix DVF
+  const budgetActive = budgetIsSet(state.budget);
+  if ((budgetActive || state.sort.key === 'prix') && !insights.prices && !insights.pricesLoaded) {
+    ensureInsights().then(() => runSearch());
+  }
+  if (budgetActive && state.budgetOnly && insights.prices) {
+    filtered = filtered.filter((r) => ['ok', 'limite'].includes(budgetFor(r.commune)?.status));
+  }
+  results = sortResults(filtered, state.sort.key, state.sort.dir, { priceOf: pricePerM2 });
   resultIndex = new Map(results.map((r) => [r.commune.code, r]));
   state.shown = LIST_PAGE_SIZE;
 
@@ -532,7 +583,11 @@ function runSearch({ fit = false } = {}) {
     names: state.points.map((p) => p.name),
     results,
     favorites: favoriteCodes(),
+    colorOf: budgetActive && insights.prices ? (c) => `budget-${budgetFor(c)?.status ?? 'inconnu'}` : null,
   });
+  mapView.setDriveZones(zones, state.points.filter(isSet).map((_, i) => pointColor(i)));
+  renderDriveStatus(points, zones);
+  els.budgetLegend.hidden = !(budgetActive && insights.prices);
   if (fit && points.length) mapView.fitPoints(points);
   updateUrl();
 
@@ -583,6 +638,7 @@ function renderList() {
         selected: r.commune.code === state.selected,
         isFav: isFavorite(favorites, r.commune.code),
         folderCount: foldersContaining(folders, r.commune.code).length,
+        budget: budgetFor(r.commune),
         onOpen: (code) => openDetails(code, 'list'),
         onToggleFav: (code) => toggleFav(code),
         onFolders: (code) => openPicker(code),
@@ -763,13 +819,156 @@ function renderDetails(code) {
       isFav: isFavorite(favorites, code),
       folderCount: foldersContaining(folders, code).length,
       insights,
+      budget: budgetFor(commune),
+      hasPoints: setPoints().length > 0,
       onClose: closeDetails,
       onToggleFav: () => toggleFav(code),
       onFolders: () => openPicker(code),
       onSearchAround: () => searchAround(code),
     })
   );
+  fillTravel(commune);
 }
+
+// ---- Temps de trajet (IGN) --------------------------------------------------
+
+// Résultats connus, utilisables sans attendre (impression)
+const knownTravel = new Map();
+const travelKey = (p, c) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}>${c.code}`;
+
+function travelFor(point, commune) {
+  return travelTime(point, commune)
+    .then((t) => {
+      knownTravel.set(travelKey(point, commune), t);
+      return t;
+    })
+    .catch(() => null);
+}
+
+/** Remplit la ligne « Trajet en voiture » de la fiche ouverte. */
+function fillTravel(commune) {
+  const pts = setPoints();
+  if (!pts.length || !document.getElementById('travel-cell')) return;
+  Promise.all(pts.map((p) => travelFor(p, commune))).then((list) => {
+    const cell = document.getElementById('travel-cell');
+    if (!cell || state.selected !== commune.code) return;
+    const parts = list.map((t, i) => {
+      const prefix = pts.length > 1 ? `${pointShortName(pts[i])} : ` : '';
+      return t ? `${prefix}${formatDuration(t.minutes)} (${formatNumber(t.km, 0)}${'\u00A0'}km)` : `${prefix}indisponible`;
+    });
+    cell.className = list.some(Boolean) ? '' : 'muted';
+    cell.textContent = list.some(Boolean) ? parts.join(' · ') : 'Indisponible (service IGN)';
+  });
+}
+
+const pointShortName = (p) => (p.commune ? p.commune.nom : 'le point');
+
+// ---- Trajet max en voiture (zones IGN) ---------------------------------------
+
+let driveRequest = null;
+
+function driveKey() {
+  const pts = setPoints();
+  if (!state.driveMax || !pts.length) return null;
+  return `${pts.map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join('|')}@${state.driveMax}`;
+}
+
+const driveZonesReady = () => Boolean(state.driveZones && state.driveZones.key === driveKey());
+
+function ensureDriveZones() {
+  const key = driveKey();
+  if (!key || driveZonesReady() || driveRequest?.key === key) return;
+  const req = { key };
+  driveRequest = req;
+  state.driveError = null;
+  Promise.all(setPoints().map((p) => isochrone(p, state.driveMax)))
+    .then((geoms) => {
+      if (driveRequest !== req) return;
+      driveRequest = null;
+      state.driveZones = { key, geoms };
+      runSearch();
+    })
+    .catch(() => {
+      if (driveRequest !== req) return;
+      driveRequest = null;
+      state.driveZones = null;
+      state.driveError = 'Zone de trajet indisponible (service IGN). Réessayez plus tard.';
+      runSearch();
+    });
+}
+
+function renderDriveStatus(points, zones) {
+  const el = els.driveStatus;
+  el.classList.remove('field-error');
+  if (!state.driveMax || !points.length) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const label = els.driveMax.selectedOptions[0]?.textContent ?? `${state.driveMax} min`;
+  if (zones) el.textContent = `Zone à ${label} en voiture (IGN) : ${results.length} commune${results.length > 1 ? 's' : ''}.`;
+  else if (state.driveError) {
+    el.textContent = state.driveError;
+    el.classList.add('field-error');
+  } else el.textContent = `Calcul de la zone à ${label} en voiture…`;
+}
+
+els.driveMax.addEventListener('change', () => {
+  state.driveMax = Number(els.driveMax.value) || null;
+  runSearch();
+});
+
+// ---- Budget du client -------------------------------------------------------
+
+/** Vérification du budget pour une commune (null si budget incomplet ou prix non chargés). */
+function budgetFor(commune) {
+  if (!budgetIsSet(state.budget) || !insights.prices) return null;
+  return budgetCheck(insights.prices.get(commune.code), commune.dep, state.budget);
+}
+
+/** Prix au m² du type choisi (maison par défaut), pour le tri. */
+function pricePerM2(commune) {
+  const t = insights.prices?.get(commune.code)?.[state.budget?.type ?? 'maison'];
+  return t && Number.isFinite(t.prix) && t.ventes >= DVF_MIN_SALES ? t.prix : null;
+}
+
+function readBudget() {
+  const budget = parseIntegerInput(els.budgetAmount.value);
+  const surface = parseIntegerInput(els.budgetSurface.value);
+  state.budget = budget || surface ? { budget, type: els.budgetType.value, surface } : null;
+  state.budgetOnly = els.budgetOnly.checked;
+  els.budgetBadge.textContent = budgetIsSet(state.budget) ? formatEuros(state.budget.budget) : '';
+}
+
+function setBudgetInputs(b) {
+  els.budgetAmount.value = b?.budget ? formatNumber(b.budget) : '';
+  els.budgetSurface.value = b?.surface ? String(b.surface) : '';
+  els.budgetType.value = b?.type === 'appartement' ? 'appartement' : 'maison';
+  readBudget();
+}
+
+const budgetSoon = debounce(() => {
+  readBudget();
+  runSearch();
+}, 300);
+for (const input of [els.budgetAmount, els.budgetSurface]) {
+  input.addEventListener('input', budgetSoon);
+  input.addEventListener('blur', () => {
+    const v = parseIntegerInput(input.value);
+    if (v != null) input.value = input === els.budgetAmount ? formatNumber(v) : String(v);
+  });
+}
+for (const input of [els.budgetType, els.budgetOnly]) {
+  input.addEventListener('change', () => {
+    readBudget();
+    runSearch();
+  });
+}
+els.budgetClear.addEventListener('click', () => {
+  els.budgetOnly.checked = false;
+  setBudgetInputs(null);
+  runSearch();
+});
 
 function openDetails(code, from) {
   const commune = data?.byCode.get(code);
@@ -948,8 +1147,21 @@ function renderFolders() {
     return [];
   }
   els.folderTitle.textContent = folder.nom;
-  const cities = folderCities(folder);
-  els.folderEmpty.hidden = cities.length > 0;
+  if (!state.editingBrief) {
+    els.briefForm.hidden = true;
+    els.briefView.hidden = false;
+    els.briefEdit.hidden = false;
+    els.briefView.replaceChildren(briefCard(folder.fiche));
+  }
+  const allCities = folderCities(folder);
+  renderStatusFilter(allCities);
+  const cities =
+    state.statusFilter === 'all'
+      ? allCities
+      : allCities.filter((c) => (c.statut ?? 'aucun') === state.statusFilter);
+  els.folderEmpty.hidden = allCities.length > 0;
+  els.folderRoute.disabled = allCities.length === 0;
+  els.folderPrint.disabled = allCities.length === 0;
   // Une note en cours de saisie ne doit pas être perdue si la liste est
   // redessinée (par exemple à l'arrivée de données d'un autre appareil)
   const editing = document.activeElement?.closest?.('#folder-cities li');
@@ -971,6 +1183,12 @@ function renderFolders() {
         folders = setFolderNote(folders, folder.id, code, note);
         saveFavorites();
       },
+      onStatus: (code, statut) => {
+        folders = setFolderStatus(folders, folder.id, code, statut);
+        saveFavorites();
+        renderFolders();
+        els.folderCitiesList.querySelector(`li[data-code="${code}"] select`)?.focus({ preventScroll: true });
+      },
       onSearchAround: (code) => searchAround(code),
     });
     li.querySelector('textarea').value = item.code === editingCode && editingField ? editingField.value : item.note;
@@ -985,9 +1203,115 @@ function renderFolders() {
     }
   }
   const communes = cities.map((c) => data?.byCode.get(c.code)).filter(Boolean);
-  mapView.showFavorites(communes, 'folder');
+  const statusOf = new Map(cities.map((c) => [c.code, c.statut]));
+  mapView.showFavorites(communes, 'folder', (code) => statusOf.get(code));
   return communes;
 }
+
+function renderStatusFilter(cities) {
+  const counts = { all: cities.length, aucun: 0 };
+  for (const k of Object.keys(STATUSES)) counts[k] = 0;
+  for (const c of cities) counts[c.statut ?? 'aucun']++;
+  if (state.statusFilter !== 'all' && !counts[state.statusFilter]) state.statusFilter = 'all';
+  const options = [['all', 'Toutes'], ...Object.entries(STATUSES), ['aucun', 'Sans statut']].filter(
+    ([k]) => k === 'all' || counts[k] > 0
+  );
+  els.statusFilter.hidden = cities.length === 0;
+  els.statusFilter.replaceChildren(
+    ...options.map(([k, label]) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          'aria-pressed': String(state.statusFilter === k),
+          onclick: () => {
+            state.statusFilter = k;
+            renderFolders();
+            els.statusFilter.querySelector('[aria-pressed="true"]')?.focus();
+          },
+        },
+        `${label} (${counts[k]})`
+      )
+    )
+  );
+}
+
+// Fiche client
+function openBriefForm() {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  const b = folder.fiche ?? {};
+  els.briefClient.value = b.client ?? '';
+  els.briefBudget.value = b.budget ? formatNumber(b.budget) : '';
+  els.briefSurface.value = b.surface ?? '';
+  els.briefType.value = b.type ?? '';
+  els.briefTravail.value = b.travail ?? '';
+  els.briefCriteres.value = b.criteres ?? '';
+  state.editingBrief = true;
+  els.briefForm.hidden = false;
+  els.briefView.hidden = true;
+  els.briefEdit.hidden = true;
+  els.briefClient.focus();
+}
+
+function closeBriefForm() {
+  state.editingBrief = false;
+  renderFolders();
+  els.briefEdit.focus();
+}
+
+els.briefEdit.addEventListener('click', openBriefForm);
+els.briefCancel.addEventListener('click', closeBriefForm);
+els.briefForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  folders = setFolderBrief(folders, state.openFolder, {
+    client: els.briefClient.value,
+    budget: parseIntegerInput(els.briefBudget.value),
+    surface: parseIntegerInput(els.briefSurface.value),
+    type: els.briefType.value || null,
+    travail: els.briefTravail.value,
+    criteres: els.briefCriteres.value,
+  });
+  saveFavorites();
+  closeBriefForm();
+});
+
+els.briefApply.addEventListener('click', () => {
+  const b = findFolder(folders, state.openFolder)?.fiche;
+  if (!b?.budget || !b?.surface) {
+    flash(els.folderFeedback, 'Indiquez le budget et la surface dans la fiche client.', true);
+    return;
+  }
+  setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
+  els.budgetBox.open = true;
+  setView('results');
+  runSearch();
+  if (sheet.isMobile()) sheet.setState('half');
+  flash(els.feedback, `Budget de ${b.client || 'la fiche'} appliqué`);
+});
+
+// Itinéraire de visite (Google Maps)
+els.folderRoute.addEventListener('click', () => {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  const cities = folderCities(folder);
+  let chosen = cities.filter((c) => c.statut === 'a-visiter');
+  const onlyToVisit = chosen.length > 0;
+  if (!onlyToVisit) chosen = cities.filter((c) => c.statut !== 'ecarte');
+  const places = chosen.map((c) => data.byCode.get(c.code)).filter(Boolean);
+  if (!places.length) {
+    flash(els.folderFeedback, 'Aucune commune à visiter dans ce dossier.', true);
+    return;
+  }
+  const start = setPoints()[0] ?? null;
+  const link = directionsUrl(start, visitOrder(start, places));
+  window.open(link.url, '_blank', 'noopener');
+  flash(
+    els.folderFeedback,
+    (onlyToVisit ? 'Itinéraire des communes « À visiter »' : 'Itinéraire des communes non écartées') +
+      (link.truncated ? ` : Google Maps limite à ${link.count} étapes, les plus proches sont ouvertes.` : ' ouvert dans Google Maps.')
+  );
+});
 
 function openFolder(id) {
   state.openFolder = id;
@@ -1303,6 +1627,9 @@ function currentSearchState() {
     regions: state.regions,
     departements: state.departements,
     sort: state.sort,
+    budget: budgetIsSet(state.budget) ? state.budget : null,
+    budgetOnly: budgetIsSet(state.budget) && state.budgetOnly,
+    driveMax: state.driveMax,
   };
 }
 
@@ -1381,6 +1708,10 @@ function buildPrintView() {
     );
     return;
   }
+  if (data && state.view === 'folders' && state.openFolder && findFolder(folders, state.openFolder)) {
+    els.printView.replaceChildren(...clientReport(findFolder(folders, state.openFolder)));
+    return;
+  }
   if (data && state.view === 'folders') {
     const open = state.openFolder ? findFolder(folders, state.openFolder) : null;
     const list = open ? [open] : visibleFolders(folders);
@@ -1417,13 +1748,84 @@ els.print.addEventListener('click', async () => {
 });
 window.addEventListener('beforeprint', buildPrintView);
 
-for (const button of [els.folderPrint, els.foldersPrintAll]) {
-  button.addEventListener('click', async () => {
-    await ensureInsights();
-    buildPrintView();
-    window.print();
+els.foldersPrintAll.addEventListener('click', async () => {
+  await ensureInsights();
+  buildPrintView();
+  window.print();
+});
+
+const STATUS_ORDER = { retenu: 0, 'a-visiter': 1, visite: 2 };
+
+/** Communes présentées dans le rapport (sans les écartées), les retenues d'abord. */
+function reportTowns(folder) {
+  return folderCities(folder)
+    .filter((c) => c.statut !== 'ecarte' && data.byCode.get(c.code))
+    .sort((a, b) => (STATUS_ORDER[a.statut] ?? 3) - (STATUS_ORDER[b.statut] ?? 3));
+}
+
+/** Rapport client (impression) à partir des données déjà connues. */
+function clientReport(folder) {
+  const pts = setPoints();
+  const towns = reportTowns(folder).map((fav) => {
+    const commune = data.byCode.get(fav.code);
+    return {
+      fav,
+      commune,
+      budget: reportBudget(folder, commune),
+      travel: pts.map((p) => knownTravel.get(travelKey(p, commune)) ?? null),
+    };
+  });
+  const shortlist = towns.slice(0, 6).map((t) => t.commune);
+  const comparison =
+    shortlist.length >= 2
+      ? comparisonTableElement(
+          comparisonTable(shortlist, {
+            data,
+            trendSeries: insights.trend ? (code) => insights.trend.get(code) : null,
+            prices: insights.prices ? (code) => insights.prices.get(code) : null,
+            pricesMeta: insights.pricesMeta ?? {},
+            points: pts.map((p) => ({ name: pointShortName(p), lat: p.lat, lon: p.lon })),
+            distanceKm,
+            travel: pts.length ? (k, code) => knownTravel.get(travelKey(pts[k], { code })) ?? null : null,
+            amenities: insights.amenities ? (code) => insights.amenities.get(code) : null,
+            budgetOf: (c) => reportBudget(folder, c),
+            budgetLabel: 'Estimation',
+          })
+        )
+      : null;
+  return clientReportContent({
+    appName: APP_NAME,
+    folder,
+    towns,
+    excluded: folderCities(folder).length - towns.length,
+    points: pts.map((p) => ({ name: pointShortName(p), lat: p.lat, lon: p.lon, radius: p.radius })),
+    data,
+    insights,
+    summary: pts.length ? summaryText() : null,
+    comparison,
   });
 }
+
+/** Budget de la fiche client (sinon celui de la recherche). */
+function reportBudget(folder, commune) {
+  const b = folder.fiche;
+  const budget = b?.budget && b?.surface ? { budget: b.budget, surface: b.surface, type: b.type ?? 'maison' } : state.budget;
+  if (!budgetIsSet(budget) || !insights.prices) return null;
+  return budgetCheck(insights.prices.get(commune.code), commune.dep, budget);
+}
+
+els.folderPrint.addEventListener('click', async () => {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  els.folderPrint.disabled = true;
+  flash(els.folderFeedback, 'Préparation du rapport (temps de trajet)…');
+  await ensureInsights();
+  await travelTable(setPoints(), reportTowns(folder).map((c) => data.byCode.get(c.code)));
+  els.folderPrint.disabled = false;
+  els.folderFeedback.textContent = '';
+  buildPrintView();
+  window.print();
+});
 
 els.favoritesPrint.addEventListener('click', async () => {
   await ensureInsights();
@@ -1434,20 +1836,39 @@ els.favoritesPrint.addEventListener('click', async () => {
 // ---- Comparaison des favoris ----------------------------------------------
 
 async function openComparison() {
-  await ensureInsights();
   const communes = [...state.compare].map((code) => data.byCode.get(code)).filter(Boolean);
   if (communes.length < 2) return;
+  els.compareBody.replaceChildren(h('p', { class: 'hint' }, 'Calcul des temps de trajet…'));
+  els.compareDialog.showModal();
+  await ensureInsights();
+  const pts = setPoints();
+  const travelMap = await travelTable(pts, communes);
   const table = comparisonTable(communes, {
+    travel: pts.length ? (k, code) => travelMap.get(`${k}|${code}`) ?? null : null,
+    amenities: insights.amenities ? (code) => insights.amenities.get(code) : null,
+    budgetOf: budgetIsSet(state.budget) && insights.prices ? budgetFor : null,
+    budgetLabel: budgetIsSet(state.budget)
+      ? `Estimation (${PROPERTY_TYPES[state.budget.type].toLowerCase()} ${state.budget.surface} m²)`
+      : 'Estimation',
     data,
     trendSeries: insights.trend ? (code) => insights.trend.get(code) : null,
     prices: insights.prices ? (code) => insights.prices.get(code) : null,
     pricesMeta: insights.pricesMeta ?? {},
-    points: setPoints().map((p) => ({ name: p.commune ? p.commune.nom : 'le point', lat: p.lat, lon: p.lon })),
+    points: setPoints().map((p) => ({ name: pointShortName(p), lat: p.lat, lon: p.lon })),
     distanceKm,
   });
   els.compareBody.replaceChildren(comparisonTableElement(table));
-  els.compareDialog.showModal();
   els.compareBody.scrollLeft = 0;
+}
+
+/** Temps de trajet de chaque point vers chaque commune (10 s au plus). */
+async function travelTable(pts, communes) {
+  const map = new Map();
+  const jobs = pts.flatMap((p, k) =>
+    communes.map((c) => travelFor(p, c).then((t) => map.set(`${k}|${c.code}`, t)))
+  );
+  await Promise.race([Promise.all(jobs), new Promise((r) => setTimeout(r, 10000))]);
+  return map;
 }
 
 els.compareOpen.addEventListener('click', openComparison);
@@ -1496,6 +1917,15 @@ function applyUrlState() {
   state.departements = (decoded.departements ?? []).filter((c) => c in data.departements);
   if (state.regions.length || state.departements.length) els.adminFilters.open = true;
   if (decoded.sort) state.sort = decoded.sort;
+  if (decoded.budget) {
+    els.budgetOnly.checked = Boolean(decoded.budgetOnly);
+    setBudgetInputs(decoded.budget);
+    els.budgetBox.open = true;
+  }
+  if (decoded.driveMax) {
+    state.driveMax = decoded.driveMax;
+    els.driveMax.value = String(decoded.driveMax);
+  }
 }
 
 let firstStart = true;

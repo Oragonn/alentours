@@ -139,3 +139,17 @@ test('URL : paramètres invalides ignorés sans erreur', () => {
   assert.deepEqual(decodeSearch(''), {});
   assert.deepEqual(decodeSearch('?pt=nimporte&pt=59350,10'), { points: [{ code: '59350', radius: 10 }] });
 });
+
+test('URL : budget et trajet maximal', () => {
+  const state = {
+    points: [{ code: '59350', radius: 25 }],
+    budget: { budget: 300000, type: 'maison', surface: 110 },
+    budgetOnly: true,
+    driveMax: 30,
+  };
+  const q = encodeSearch(state);
+  assert.equal(q, '?c=59350&r=25&budget=300000&bien=maison&surf=110&dansbudget=1&trajet=30');
+  assert.deepEqual(decodeSearch(q), state);
+  assert.deepEqual(decodeSearch('?c=59350&r=25&budget=abc&trajet=17&bien=chateau'), { points: [{ code: '59350', radius: 25 }] });
+  assert.deepEqual(decodeSearch('?budget=250000&bien=appartement').budget, { budget: 250000, type: 'appartement', surface: null });
+});

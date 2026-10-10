@@ -5,6 +5,10 @@ import { h } from './dom.js';
 import { density, departementLabel, sizeCategoryOf } from '../lib/commune.js';
 import { formatKm, formatNumber, NBSP } from '../lib/text.js';
 import { populationTrend, priceInfo, trendText } from '../lib/insights.js';
+import { amenityList, amenitySummary } from '../lib/amenities.js';
+import { BUDGET_STATUS_LABELS, formatEuros, PROPERTY_TYPES, priceReliability } from '../lib/budget.js';
+import { STATUSES } from '../lib/favorites.js';
+import { distanceKm } from '../lib/geo.js';
 
 const NA = 'Non disponible';
 
@@ -79,9 +83,20 @@ export function folderButton(count, name, onClick) {
 }
 
 /** Ligne de la liste des résultats */
-export function resultRow(result, { pointNames, selected, isFav, folderCount = 0, onOpen, onToggleFav, onFolders }) {
+export function resultRow(result, { pointNames, selected, isFav, folderCount = 0, budget = null, onOpen, onToggleFav, onFolders }) {
   const c = result.commune;
-  const meta = `${populationText(c.population)} · ${distanceText(result, pointNames)}`;
+  const metaText = `${populationText(c.population)} · ${distanceText(result, pointNames)}`;
+  const meta = budget
+    ? [
+        metaText,
+        ' · ',
+        h(
+          'span',
+          { class: `budget-chip budget-${budget.status}`, title: BUDGET_STATUS_LABELS[budget.status] },
+          budget.status === 'inconnu' ? 'prix ?' : `≈ ${formatEuros(budget.estimate)}`
+        ),
+      ]
+    : metaText;
   return h(
     'li',
     { class: selected ? 'selected' : null, dataset: { code: c.code } },
@@ -155,11 +170,31 @@ function trendCell(insights, code) {
   return frag;
 }
 
-function priceCell(insights, commune) {
+function priceCell(insights, commune, budget) {
   if (!insights.prices) return h('span', { class: 'muted' }, insights.pricesLoaded ? NA : 'Chargement…');
-  const info = priceInfo(insights.prices.get(commune.code), commune.dep, insights.pricesMeta);
+  const entry = insights.prices.get(commune.code);
+  const info = priceInfo(entry, commune.dep, insights.pricesMeta);
   const frag = document.createDocumentFragment();
   frag.append(h('span', { class: info.status === 'ok' ? null : 'muted' }, info.label));
+  if (info.status === 'ok') {
+    const rel = (type) => (entry?.[type]?.ventes ? priceReliability(entry[type].ventes) : null);
+    const parts = ['maison', 'appartement']
+      .map((t) => [t, rel(t)])
+      .filter(([, r]) => r && r.id !== 'insuffisant')
+      .map(([t, r]) => `${PROPERTY_TYPES[t]} : ${r.label.replace('Fiabilité ', '')}`);
+    if (parts.length) frag.append(h('span', { class: 'source' }, `Fiabilité — ${parts.join(' · ')}`));
+  }
+  if (budget) {
+    frag.append(
+      h(
+        'span',
+        { class: `budget-line budget-${budget.status}` },
+        budget.status === 'inconnu'
+          ? `Budget : prix inconnu (${budget.reason ?? 'données insuffisantes'})`
+          : `Estimation : ≈ ${formatEuros(budget.estimate)} — ${BUDGET_STATUS_LABELS[budget.status]}`
+      )
+    );
+  }
   frag.append(
     h(
       'span',
@@ -176,8 +211,25 @@ function priceCell(insights, commune) {
   return frag;
 }
 
+function amenitiesCell(insights, code) {
+  if (!insights.amenities) return h('span', { class: 'muted' }, insights.pricesLoaded ? NA : 'Chargement…');
+  const list = amenityList(insights.amenities.get(code));
+  const frag = document.createDocumentFragment();
+  frag.append(list.length ? h('span', {}, list.map((a) => a.text).join(', ')) : h('span', { class: 'muted' }, 'Aucun équipement recensé'));
+  frag.append(
+    h(
+      'span',
+      { class: 'source' },
+      'Source : ',
+      h('a', { href: insights.amenitiesMeta?.url ?? 'https://www.insee.fr/', target: '_blank', rel: 'noopener' }, 'INSEE, BPE'),
+      insights.amenitiesMeta?.annee ? ` ${insights.amenitiesMeta.annee}` : ''
+    )
+  );
+  return frag;
+}
+
 /** Contenu de la fiche commune */
-export function detailsContent(commune, { data, result, pointNames, isFav, folderCount = 0, insights, onClose, onToggleFav, onFolders, onSearchAround }) {
+export function detailsContent(commune, { data, result, pointNames, isFav, folderCount = 0, insights, budget = null, hasPoints = false, onClose, onToggleFav, onFolders, onSearchAround }) {
   const value = (v) => (v == null || v === '' ? h('span', { class: 'muted' }, NA) : v);
   const dens = density(commune.population, commune.surface);
   const cps = commune.codesPostaux ?? [];
@@ -186,7 +238,8 @@ export function detailsContent(commune, { data, result, pointNames, isFav, folde
 
   const facts = [
     ['Population', Number.isFinite(commune.population) ? `${formatNumber(commune.population)} habitants` : null],
-    ['Distance', distanceText(result, pointNames)],
+    ['Distance (vol d’oiseau)', distanceText(result, pointNames)],
+    ['Trajet en voiture', hasPoints ? h('span', { id: 'travel-cell', class: 'muted' }, 'Calcul…') : null],
     ['Département', commune.dep ? departementLabel(commune.dep, data.departements) : null],
     ['Région', data.regions[commune.reg] ?? null],
     [cps.length > 1 ? 'Codes postaux' : 'Code postal', cps.length ? cps.join(', ') : null],
@@ -194,7 +247,8 @@ export function detailsContent(commune, { data, result, pointNames, isFav, folde
     ['Superficie', Number.isFinite(commune.surface) ? `${formatNumber(commune.surface, 1)}${NBSP}km²` : null],
     ['Densité', dens != null ? `${formatNumber(dens)}${NBSP}hab./km²` : null],
     ['Tendance démographique', trendCell(insights, commune.code)],
-    ['Prix médian au m²', priceCell(insights, commune)],
+    ['Prix médian au m²', priceCell(insights, commune, budget)],
+    ['Équipements', amenitiesCell(insights, commune.code)],
   ];
 
   return [
@@ -296,7 +350,7 @@ export function favoriteRow(item, commune, { data, folderCount = 0, onOpen, onRe
 }
 
 /** Ville dans un dossier : note personnelle propre à ce dossier. */
-export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove, onNote, onSearchAround }) {
+export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove, onNote, onStatus, onSearchAround }) {
   const noteId = `note-${folderId}-${item.code}`;
   const name = commune?.nom ?? item.nom;
   const sub = commune
@@ -351,11 +405,41 @@ export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove,
       ? h(
           'div',
           { class: 'fav-actions' },
-          h('span'),
+          h(
+            'label',
+            { class: 'status-select' },
+            h('span', { class: 'visually-hidden' }, `Statut de ${name}`),
+            h(
+              'select',
+              {
+                class: `status-${item.statut ?? 'aucun'}`,
+                onchange: (e) => onStatus(item.code, e.target.value || null),
+              },
+              h('option', { value: '' }, 'Sans statut'),
+              Object.entries(STATUSES).map(([k, label]) => {
+                const o = h('option', { value: k }, label);
+                if (item.statut === k) o.selected = true;
+                return o;
+              })
+            )
+          ),
           h('button', { type: 'button', class: 'btn btn-ghost', onclick: () => onSearchAround(item.code) }, 'Chercher autour')
         )
       : null
   );
+}
+
+/** Fiche client affichée en tête d'un dossier */
+export function briefCard(brief) {
+  if (!brief) return h('p', { class: 'hint' }, 'Pas encore de fiche client : budget, type de bien, lieux importants, critères…');
+  const rows = [
+    ['Client', brief.client],
+    ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
+    ['Bien', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m²` : ''].filter(Boolean).join(', ')],
+    ['Lieux importants', brief.travail],
+    ['Critères', brief.criteres],
+  ].filter(([, v]) => v);
+  return h('dl', { class: 'facts brief-facts' }, rows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
 }
 
 /** Ligne de la liste des dossiers */
@@ -485,3 +569,130 @@ export function printContent({ appName, summary, results, data, pointNames, insi
     ),
   ];
 }
+
+/** Plan schématique (SVG) : points de départ, cercles et communes numérotées. */
+function schematicMap(points, towns) {
+  const ns = 'http://www.w3.org/2000/svg';
+  const W = 640;
+  const H = 360;
+  const all = [...points, ...towns];
+  if (!all.length) return null;
+  const lat0 = all.reduce((s, p) => s + p.lat, 0) / all.length;
+  const kx = Math.cos((lat0 * Math.PI) / 180);
+  // Étendue : communes et cercles de recherche
+  const xs = [];
+  const ys = [];
+  for (const p of towns) {
+    xs.push(p.lon * kx);
+    ys.push(p.lat);
+  }
+  for (const p of points) {
+    const dLat = p.radius / 111.195;
+    xs.push((p.lon - dLat / kx) * kx, (p.lon + dLat / kx) * kx);
+    ys.push(p.lat - dLat, p.lat + dLat);
+  }
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const scale = Math.min((W - 40) / (maxX - minX || 0.01), (H - 40) / (maxY - minY || 0.01));
+  const px = (lon) => 20 + (lon * kx - minX) * scale + ((W - 40) - (maxX - minX) * scale) / 2;
+  const py = (lat) => 20 + (maxY - lat) * scale + ((H - 40) - (maxY - minY) * scale) / 2;
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('class', 'report-map');
+  svg.setAttribute('role', 'img');
+  svg.setAttribute('aria-label', 'Plan schématique des communes retenues');
+  const el = (tag, attrs, text) => {
+    const e = document.createElementNS(ns, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+    if (text != null) e.textContent = text;
+    svg.append(e);
+    return e;
+  };
+  el('rect', { x: 0, y: 0, width: W, height: H, fill: '#f7f8fa', stroke: '#999', 'stroke-width': 0.5 });
+  for (const p of points) {
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r: (p.radius / 111.195) * scale, fill: 'none', stroke: '#1d4ed8', 'stroke-dasharray': '6 4' });
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r: 5, fill: '#1d4ed8' });
+    el('text', { x: px(p.lon) + 8, y: py(p.lat) - 8, 'font-size': 12, 'font-weight': 700, fill: '#1d4ed8' }, p.name);
+  }
+  towns.forEach((t, i) => {
+    el('circle', { cx: px(t.lon), cy: py(t.lat), r: 9, fill: '#111', stroke: '#fff', 'stroke-width': 1.5 });
+    el('text', { x: px(t.lon), y: py(t.lat) + 4, 'font-size': 10, 'font-weight': 700, fill: '#fff', 'text-anchor': 'middle' }, String(i + 1));
+    el('text', { x: px(t.lon) + 12, y: py(t.lat) + 4, 'font-size': 11, fill: '#111' }, t.nom);
+  });
+  return svg;
+}
+
+/**
+ * Rapport client d'un dossier : fiche, zone, plan, comparaison, une fiche par
+ * commune (statut, chiffres, équipements, trajet, note).
+ * towns : [{ commune, fav, budget, travel: [{ minutes, km } | null] }]
+ */
+export function clientReportContent({ appName, folder, towns, excluded, points, data, insights, summary, comparison }) {
+  const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date());
+  const brief = folder.fiche;
+  const card = ({ commune, fav, budget, travel }, i) => {
+    const dens = density(commune.population, commune.surface);
+    const facts = [
+      ['Population', Number.isFinite(commune.population) ? `${formatNumber(commune.population)} habitants` : NA],
+      ['Densité', dens != null ? `${formatNumber(dens)}${NBSP}hab./km²` : NA],
+    ];
+    points.forEach((p, k) => {
+      const km = distanceKm(p.lat, p.lon, commune.lat, commune.lon);
+      const t = travel?.[k];
+      facts.push([
+        points.length > 1 ? `Depuis ${p.name}` : 'Distance',
+        `${formatKm(km)} à vol d’oiseau${t ? ` · ${Math.round(t.minutes)}${NBSP}min en voiture (${formatNumber(t.km, 0)}${NBSP}km)` : ''}`,
+      ]);
+    });
+    if (insights.trend) facts.push(['Tendance', trendText(insights.trend.get(commune.code))]);
+    if (insights.prices) facts.push(['Prix médian', priceInfo(insights.prices.get(commune.code), commune.dep, insights.pricesMeta).label]);
+    if (budget) {
+      facts.push([
+        'Budget',
+        budget.status === 'inconnu' ? 'Prix inconnu' : `≈ ${formatEuros(budget.estimate)} — ${BUDGET_STATUS_LABELS[budget.status]}`,
+      ]);
+    }
+    if (insights.amenities) facts.push(['Équipements', amenitySummary(insights.amenities.get(commune.code), Object.keys(AMENITY_KEYS))]);
+    return h(
+      'article',
+      { class: 'print-fav' },
+      h('h2', {}, `${i + 1}. ${commune.nom} (${commune.dep})${fav.statut ? ` — ${STATUSES[fav.statut]}` : ''}`),
+      h('p', { class: 'print-fav-sub' }, `${departementLabel(commune.dep, data.departements)} · ${data.regions[commune.reg] ?? ''}`),
+      h('dl', {}, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+      h('p', { class: 'print-fav-note' }, h('strong', {}, 'Notre avis : '), fav.note || '—')
+    );
+  };
+  const briefRows = brief
+    ? [
+        ['Client', brief.client],
+        ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
+        ['Bien recherché', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m² minimum` : ''].filter(Boolean).join(', ')],
+        ['Lieux importants', brief.travail],
+        ['Critères', brief.criteres],
+      ].filter(([, v]) => v)
+    : [];
+  const map = schematicMap(points, towns.map((t) => t.commune));
+  return [
+    h('h1', {}, `${appName} — Dossier de recherche`),
+    h('p', { class: 'print-summary' }, `${brief?.client || folder.nom} · préparé le ${date}`),
+    briefRows.length ? h('h2', { class: 'print-section' }, 'Le projet') : null,
+    briefRows.length ? h('dl', { class: 'report-brief' }, briefRows.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])) : null,
+    summary ? h('h2', { class: 'print-section' }, 'La zone étudiée') : null,
+    summary ? h('p', {}, summary) : null,
+    map,
+    comparison ? h('h2', { class: 'print-section' }, 'Comparaison des communes') : null,
+    comparison,
+    h('h2', { class: 'print-section' }, `Les communes (${towns.length})`),
+    ...(towns.length ? towns.map(card) : [h('p', {}, 'Aucune commune dans ce dossier.')]),
+    excluded ? h('p', { class: 'print-meta' }, `${excluded} commune${excluded > 1 ? 's écartées' : ' écartée'} non présentée${excluded > 1 ? 's' : ''}.`) : null,
+    h(
+      'p',
+      { class: 'print-meta report-sources' },
+      'Sources : INSEE (populations, équipements), DVF – data.gouv.fr (prix), IGN (temps de trajet). Les prix sont des médianes indicatives et ne constituent pas une estimation d’un bien.'
+    ),
+  ].filter(Boolean);
+}
+
+const AMENITY_KEYS = { ecoles: 1, colleges: 1, lycees: 1, creches: 1, medecins: 1, pharmacies: 1, supermarches: 1, gares: 1 };

@@ -3,6 +3,8 @@
 import { density, departementLabel, sizeCategory } from './commune.js';
 import { populationTrend, priceInfo } from './insights.js';
 import { formatKm, formatNumber, NBSP } from './text.js';
+import { amenitySummary } from './amenities.js';
+import { BUDGET_STATUS_LABELS, formatEuros } from './budget.js';
 
 const NA = 'Non disponible';
 
@@ -29,10 +31,13 @@ export function bestIndexes(values, best) {
  *   points       [{ name, lat, lon }] points de départ de la recherche
  *   distanceKm   (lat1, lon1, lat2, lon2) → km
  *   notes        (code) → note personnelle (facultatif : ligne « Note » si fourni)
+ *   travel       (indice du point, code) → { minutes, km } | null (facultatif)
+ *   amenities    (code) → comptes d'équipements (facultatif)
+ *   budgetOf     (commune) → résultat de budgetCheck (facultatif) ; budgetLabel
  * Renvoie { columns: [{ code, nom, dep }], rows: [{ key, label, cells: [{ text }], best }] }
  * où best = indices des cellules mises en avant.
  */
-export function comparisonTable(communes, { data, trendSeries, prices, pricesMeta = {}, points = [], distanceKm, notes = null }) {
+export function comparisonTable(communes, { data, trendSeries, prices, pricesMeta = {}, points = [], distanceKm, notes = null, travel = null, amenities = null, budgetOf = null, budgetLabel = 'Estimation' }) {
   const rows = [];
   const add = (key, label, cells, best = null) => {
     rows.push({ key, label, cells, best: bestIndexes(cells.map((c) => c.value), best) });
@@ -93,10 +98,40 @@ export function comparisonTable(communes, { data, trendSeries, prices, pricesMet
     );
   }
 
+  if (budgetOf) {
+    add(
+      'budget',
+      budgetLabel,
+      communes.map((c) => {
+        const b = budgetOf(c);
+        if (!b || b.status === 'inconnu') return cell('Prix inconnu');
+        return cell(`≈ ${formatEuros(b.estimate)} (${BUDGET_STATUS_LABELS[b.status].toLowerCase()})`, b.estimate);
+      }),
+      'min'
+    );
+  }
+
+  points.forEach((p, k) => {
+    if (!travel) return;
+    add(
+      `trajet-${p.name}`,
+      `Trajet en voiture depuis ${p.name}`,
+      communes.map((c) => {
+        const t = travel(k, c.code);
+        return t ? cell(`${Math.round(t.minutes)}${NBSP}min (${formatNumber(t.km, 0)}${NBSP}km)`, t.minutes) : cell(NA);
+      }),
+      'min'
+    );
+  });
+
+  if (amenities) {
+    add('equipements', 'Équipements', communes.map((c) => cell(amenitySummary(amenities(c.code)))));
+  }
+
   for (const p of points) {
     add(
       `distance-${p.name}`,
-      `Distance de ${p.name}`,
+      `Distance à vol d’oiseau de ${p.name}`,
       communes.map((c) => {
         const km = distanceKm(p.lat, p.lon, c.lat, c.lon);
         return cell(formatKm(km), km);

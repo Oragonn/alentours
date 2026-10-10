@@ -12,6 +12,9 @@ export const FAVORITES_FORMAT = 'alentours-favoris';
 export const FAVORITES_VERSION = 1;
 export const TOMBSTONE_DAYS = 180;
 
+// Statut d'une ville dans un dossier (suivi des visites)
+export const STATUSES = { 'a-visiter': 'À visiter', visite: 'Visité', retenu: 'Retenu', ecarte: 'Écarté' };
+
 const CODE_RE = /^[0-9][0-9AB][0-9]{3}$/;
 const isDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 const iso = (date) => date.toISOString();
@@ -28,9 +31,11 @@ function cleanItem(item) {
     ajoute,
     modifie: isDate(item.modifie) ? item.modifie : ajoute,
   };
+  if (STATUSES[item.statut]) clean.statut = item.statut;
   if (item.supprime === true) {
     clean.supprime = true;
     clean.note = '';
+    delete clean.statut;
   }
   return clean;
 }
@@ -100,7 +105,7 @@ export function syncMerge(a, b, now = new Date()) {
 /** Deux listes identiques ? (pour éviter des écritures inutiles) */
 export function sameFavorites(a, b) {
   if (a.length !== b.length) return false;
-  const key = (it) => `${it.code}|${it.modifie}|${it.supprime ? 1 : 0}|${it.note}`;
+  const key = (it) => `${it.code}|${it.modifie}|${it.supprime ? 1 : 0}|${it.note}|${it.statut ?? ''}`;
   const set = new Set(a.map(key));
   return b.every((it) => set.has(key(it)));
 }

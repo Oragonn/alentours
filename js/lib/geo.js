@@ -82,3 +82,57 @@ export function markerRadius(population, cfg, zoom) {
 }
 
 export { KM_PER_DEGREE };
+
+/** Point dans un anneau (liste de [lon, lat]) : algorithme du rayon. */
+function inRing(lon, lat, ring) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i];
+    const [xj, yj] = ring[j];
+    if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+/** Le point est-il dans une géométrie GeoJSON (Polygon ou MultiPolygon, trous compris) ? */
+export function pointInGeometry(lat, lon, geometry) {
+  if (!geometry) return false;
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.type === 'MultiPolygon' ? geometry.coordinates : [];
+  return polygons.some(([outer, ...holes]) => inRing(lon, lat, outer) && !holes.some((h) => inRing(lon, lat, h)));
+}
+
+/**
+ * Ordre de visite : plus proche voisin à partir du point de départ.
+ * start : { lat, lon } ou null ; places : [{ lat, lon, ... }]
+ */
+export function visitOrder(start, places) {
+  const left = [...places];
+  const order = [];
+  let cur = start ?? left[0];
+  while (left.length) {
+    let best = 0;
+    for (let i = 1; i < left.length; i++) {
+      if (distanceKm(cur.lat, cur.lon, left[i].lat, left[i].lon) < distanceKm(cur.lat, cur.lon, left[best].lat, left[best].lon)) best = i;
+    }
+    cur = left.splice(best, 1)[0];
+    order.push(cur);
+  }
+  return order;
+}
+
+/**
+ * Lien Google Maps d'itinéraire (voiture). Google accepte au plus 9 étapes
+ * entre le départ et l'arrivée : renvoie { url, count, truncated }.
+ */
+export function directionsUrl(start, places, maxWaypoints = 9) {
+  const stops = places.slice(0, maxWaypoints + (start ? 1 : 2));
+  if (!stops.length) return null;
+  const ll = (p) => `${p.lat.toFixed(5)},${p.lon.toFixed(5)}`;
+  const origin = start ?? stops[0];
+  const rest = start ? stops : stops.slice(1);
+  const destination = rest[rest.length - 1] ?? origin;
+  const waypoints = rest.slice(0, -1);
+  const params = new URLSearchParams({ api: '1', origin: ll(origin), destination: ll(destination), travelmode: 'driving' });
+  if (waypoints.length) params.set('waypoints', waypoints.map(ll).join('|'));
+  return { url: `https://www.google.com/maps/dir/?${params}`, count: stops.length, truncated: places.length > stops.length };
+}

@@ -22,36 +22,39 @@
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
   <!-- assets:start : généré par « npm run stamp », ne pas modifier à la main -->
-  <link rel="stylesheet" href="css/style.css?v=71df79e82a">
-  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=644d8ba02b","./js/config.js":"./js/config.js?v=6eadae7829","./js/data.js":"./js/data.js?v=a19261109e","./js/firebase-config.js":"./js/firebase-config.js?v=3c09feb3ba","./js/map.js":"./js/map.js?v=a74862faf3","./js/storage.js":"./js/storage.js?v=7082ddbf7e","./js/sync.js":"./js/sync.js?v=fb861bda83","./js/theme.js":"./js/theme.js?v=a1237f8f04","./js/lib/commune.js":"./js/lib/commune.js?v=0e879387da","./js/lib/compare.js":"./js/lib/compare.js?v=e1fadf12e7","./js/lib/csv.js":"./js/lib/csv.js?v=2c7997fe47","./js/lib/favorites.js":"./js/lib/favorites.js?v=96bd43a665","./js/lib/folders.js":"./js/lib/folders.js?v=bb00c44e14","./js/lib/geo.js":"./js/lib/geo.js?v=f382ab52cc","./js/lib/insights.js":"./js/lib/insights.js?v=3b0acd6f27","./js/lib/labels.js":"./js/lib/labels.js?v=fa84fcf963","./js/lib/search.js":"./js/lib/search.js?v=9bc058e9a9","./js/lib/sort.js":"./js/lib/sort.js?v=58f221c5b2","./js/lib/suggest.js":"./js/lib/suggest.js?v=9da41d9446","./js/lib/summary.js":"./js/lib/summary.js?v=94d62a56cf","./js/lib/text.js":"./js/lib/text.js?v=b8b73e5cd4","./js/lib/url.js":"./js/lib/url.js?v=0d1cad7ac0","./js/lib/userdata.js":"./js/lib/userdata.js?v=17826ccd02","./js/ui/autocomplete.js":"./js/ui/autocomplete.js?v=4547dc3483","./js/ui/dom.js":"./js/ui/dom.js?v=c966c28639","./js/ui/sheet.js":"./js/ui/sheet.js?v=f1322cd9ab","./js/ui/views.js":"./js/ui/views.js?v=d201a22680"}}</script>
-  <script type="application/json" id="asset-versions">{"data/communes.json":"7f5514fb29","data/departements.json":"3399925b09","data/regions.json":"bf213e3a54","data/population-trend.json":"1fb5089648","data/prix.json":"8720e5246b"}</script>
-  <link rel="modulepreload" href="js/app.js?v=644d8ba02b">
+  <link rel="stylesheet" href="css/style.css?v=e575c5daab">
+  <script type="importmap">{"imports":{"./js/app.js":"./js/app.js?v=8f7c4c29af","./js/config.js":"./js/config.js?v=6eadae7829","./js/data.js":"./js/data.js?v=b836af6fa8","./js/firebase-config.js":"./js/firebase-config.js?v=3c09feb3ba","./js/map.js":"./js/map.js?v=41607df566","./js/routing.js":"./js/routing.js?v=b86fc5db01","./js/storage.js":"./js/storage.js?v=7082ddbf7e","./js/sync.js":"./js/sync.js?v=fb861bda83","./js/theme.js":"./js/theme.js?v=a1237f8f04","./js/lib/amenities.js":"./js/lib/amenities.js?v=a776c3adcf","./js/lib/budget.js":"./js/lib/budget.js?v=f7a2df4c8b","./js/lib/commune.js":"./js/lib/commune.js?v=0e879387da","./js/lib/compare.js":"./js/lib/compare.js?v=74b454ccf3","./js/lib/csv.js":"./js/lib/csv.js?v=2c7997fe47","./js/lib/favorites.js":"./js/lib/favorites.js?v=923765d47b","./js/lib/folders.js":"./js/lib/folders.js?v=c3ece9b2f3","./js/lib/geo.js":"./js/lib/geo.js?v=e606e528c7","./js/lib/insights.js":"./js/lib/insights.js?v=3b0acd6f27","./js/lib/labels.js":"./js/lib/labels.js?v=fa84fcf963","./js/lib/search.js":"./js/lib/search.js?v=9bc058e9a9","./js/lib/sort.js":"./js/lib/sort.js?v=38d34c5c08","./js/lib/suggest.js":"./js/lib/suggest.js?v=9da41d9446","./js/lib/summary.js":"./js/lib/summary.js?v=94d62a56cf","./js/lib/text.js":"./js/lib/text.js?v=b8b73e5cd4","./js/lib/url.js":"./js/lib/url.js?v=98da8e2d1c","./js/lib/userdata.js":"./js/lib/userdata.js?v=a3cb99c299","./js/ui/autocomplete.js":"./js/ui/autocomplete.js?v=4547dc3483","./js/ui/dom.js":"./js/ui/dom.js?v=c966c28639","./js/ui/sheet.js":"./js/ui/sheet.js?v=f1322cd9ab","./js/ui/views.js":"./js/ui/views.js?v=7af632e554"}}</script>
+  <script type="application/json" id="asset-versions">{"data/communes.json":"7f5514fb29","data/departements.json":"3399925b09","data/regions.json":"bf213e3a54","data/population-trend.json":"1fb5089648","data/prix.json":"8720e5246b","data/equipements.json":"ca664f55cc"}</script>
+  <link rel="modulepreload" href="js/app.js?v=8f7c4c29af">
   <link rel="modulepreload" href="js/config.js?v=6eadae7829">
-  <link rel="modulepreload" href="js/data.js?v=a19261109e">
+  <link rel="modulepreload" href="js/data.js?v=b836af6fa8">
   <link rel="modulepreload" href="js/firebase-config.js?v=3c09feb3ba">
-  <link rel="modulepreload" href="js/map.js?v=a74862faf3">
+  <link rel="modulepreload" href="js/map.js?v=41607df566">
+  <link rel="modulepreload" href="js/routing.js?v=b86fc5db01">
   <link rel="modulepreload" href="js/storage.js?v=7082ddbf7e">
   <link rel="modulepreload" href="js/sync.js?v=fb861bda83">
   <link rel="modulepreload" href="js/theme.js?v=a1237f8f04">
+  <link rel="modulepreload" href="js/lib/amenities.js?v=a776c3adcf">
+  <link rel="modulepreload" href="js/lib/budget.js?v=f7a2df4c8b">
   <link rel="modulepreload" href="js/lib/commune.js?v=0e879387da">
-  <link rel="modulepreload" href="js/lib/compare.js?v=e1fadf12e7">
+  <link rel="modulepreload" href="js/lib/compare.js?v=74b454ccf3">
   <link rel="modulepreload" href="js/lib/csv.js?v=2c7997fe47">
-  <link rel="modulepreload" href="js/lib/favorites.js?v=96bd43a665">
-  <link rel="modulepreload" href="js/lib/folders.js?v=bb00c44e14">
-  <link rel="modulepreload" href="js/lib/geo.js?v=f382ab52cc">
+  <link rel="modulepreload" href="js/lib/favorites.js?v=923765d47b">
+  <link rel="modulepreload" href="js/lib/folders.js?v=c3ece9b2f3">
+  <link rel="modulepreload" href="js/lib/geo.js?v=e606e528c7">
   <link rel="modulepreload" href="js/lib/insights.js?v=3b0acd6f27">
   <link rel="modulepreload" href="js/lib/labels.js?v=fa84fcf963">
   <link rel="modulepreload" href="js/lib/search.js?v=9bc058e9a9">
-  <link rel="modulepreload" href="js/lib/sort.js?v=58f221c5b2">
+  <link rel="modulepreload" href="js/lib/sort.js?v=38d34c5c08">
   <link rel="modulepreload" href="js/lib/suggest.js?v=9da41d9446">
   <link rel="modulepreload" href="js/lib/summary.js?v=94d62a56cf">
   <link rel="modulepreload" href="js/lib/text.js?v=b8b73e5cd4">
-  <link rel="modulepreload" href="js/lib/url.js?v=0d1cad7ac0">
-  <link rel="modulepreload" href="js/lib/userdata.js?v=17826ccd02">
+  <link rel="modulepreload" href="js/lib/url.js?v=98da8e2d1c">
+  <link rel="modulepreload" href="js/lib/userdata.js?v=a3cb99c299">
   <link rel="modulepreload" href="js/ui/autocomplete.js?v=4547dc3483">
   <link rel="modulepreload" href="js/ui/dom.js?v=c966c28639">
   <link rel="modulepreload" href="js/ui/sheet.js?v=f1322cd9ab">
-  <link rel="modulepreload" href="js/ui/views.js?v=d201a22680">
+  <link rel="modulepreload" href="js/ui/views.js?v=7af632e554">
   <!-- assets:end -->
 </head>
 <body>
@@ -104,6 +107,55 @@
             </div>
             <p id="pop-error" class="field-error" role="alert" hidden></p>
 
+            <div class="field">
+              <label for="drive-max">Trajet max en voiture</label>
+              <select id="drive-max">
+                <option value="">Pas de limite</option>
+                <option value="15">15 min</option>
+                <option value="20">20 min</option>
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">1 h</option>
+              </select>
+            </div>
+            <p id="drive-status" class="hint" role="status" aria-live="polite" hidden></p>
+
+            <details class="admin-filters" id="budget-box">
+              <summary>Budget du client <span id="budget-badge" class="tab-count"></span></summary>
+              <div class="admin-filters-body">
+                <div class="field-row">
+                  <div class="field">
+                    <label for="budget-amount">Budget (€)</label>
+                    <input id="budget-amount" type="text" inputmode="numeric" placeholder="Ex. : 300 000">
+                  </div>
+                  <div class="field">
+                    <label for="budget-surface">Surface (m²)</label>
+                    <input id="budget-surface" type="text" inputmode="numeric" placeholder="Ex. : 110">
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="budget-type">Type de bien</label>
+                  <select id="budget-type">
+                    <option value="maison">Maison</option>
+                    <option value="appartement">Appartement</option>
+                  </select>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="budget-only">
+                  <span class="switch-track" aria-hidden="true"></span>
+                  <span>Dans le budget seulement</span>
+                </label>
+                <ul class="budget-legend" id="budget-legend" aria-label="Couleur des points sur la carte" hidden>
+                  <li><span class="dot budget-ok"></span>Dans le budget</li>
+                  <li><span class="dot budget-limite"></span>Limite (+10 %)</li>
+                  <li><span class="dot budget-trop"></span>Au-dessus</li>
+                  <li><span class="dot budget-inconnu"></span>Prix inconnu</li>
+                </ul>
+                <p class="hint">Estimation = prix médian au m² (ventes DVF 2021–2025) × surface. Le prix d'un bien précis peut s'en écarter de 15 à 25 %.</p>
+                <button type="button" class="btn btn-secondary" id="budget-clear">Effacer le budget</button>
+              </div>
+            </details>
+
             <label class="switch">
               <input type="checkbox" id="rings-toggle">
               <span class="switch-track" aria-hidden="true"></span>
@@ -134,6 +186,7 @@
                 <option value="distance">Distance</option>
                 <option value="population">Population</option>
                 <option value="nom">Nom</option>
+                <option value="prix">Prix au m²</option>
               </select>
               <button type="button" class="btn btn-icon" id="sort-dir" aria-label="Ordre croissant" title="Ordre croissant">↑</button>
             </div>
@@ -197,7 +250,7 @@
             <form id="folder-create" class="folder-create" autocomplete="off">
               <label for="folder-name">Nouveau dossier</label>
               <div class="folder-create-row">
-                <input id="folder-name" type="text" maxlength="60" placeholder="Ex. : Maison près de Lille">
+                <input id="folder-name" type="text" maxlength="60" placeholder="Ex. : Famille Martin — maison 4 ch.">
                 <button type="submit" class="btn btn-primary">Créer</button>
               </div>
             </form>
@@ -217,13 +270,62 @@
                 <button type="button" class="btn btn-ghost" id="folder-rename-cancel">Annuler</button>
               </div>
             </form>
+            <section class="brief" aria-labelledby="brief-title">
+              <div class="brief-head">
+                <h3 id="brief-title">Fiche client</h3>
+                <button type="button" class="btn btn-ghost" id="brief-edit">Modifier</button>
+              </div>
+              <div id="brief-view"></div>
+              <form id="brief-form" class="brief-form" autocomplete="off" hidden>
+                <div class="field">
+                  <label for="brief-client">Client</label>
+                  <input id="brief-client" type="text" maxlength="100" placeholder="Ex. : M. et Mme Martin">
+                </div>
+                <div class="field-row">
+                  <div class="field">
+                    <label for="brief-budget">Budget (€)</label>
+                    <input id="brief-budget" type="text" inputmode="numeric" placeholder="Ex. : 300 000">
+                  </div>
+                  <div class="field">
+                    <label for="brief-surface">Surface (m²)</label>
+                    <input id="brief-surface" type="text" inputmode="numeric" placeholder="Ex. : 110">
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="brief-type">Type de bien</label>
+                  <select id="brief-type">
+                    <option value="">Non précisé</option>
+                    <option value="maison">Maison</option>
+                    <option value="appartement">Appartement</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="brief-travail">Lieux importants</label>
+                  <input id="brief-travail" type="text" maxlength="200" placeholder="Ex. : travail à Lille, parents à Arras">
+                </div>
+                <div class="field">
+                  <label for="brief-criteres">Critères</label>
+                  <textarea id="brief-criteres" rows="3" maxlength="2000" placeholder="Ex. : 4 chambres, jardin, école primaire à pied, gare TER"></textarea>
+                </div>
+                <div class="actions">
+                  <button type="submit" class="btn btn-primary">Enregistrer</button>
+                  <button type="button" class="btn btn-ghost" id="brief-cancel">Annuler</button>
+                </div>
+              </form>
+            </section>
             <div class="actions">
-              <button type="button" class="btn btn-secondary" id="folder-rename">Renommer</button>
-              <button type="button" class="btn btn-secondary" id="folder-print">Imprimer le dossier</button>
-              <button type="button" class="btn btn-secondary" id="folder-delete">Supprimer</button>
+              <button type="button" class="btn btn-primary" id="brief-apply">Appliquer le budget à la recherche</button>
+              <button type="button" class="btn btn-secondary" id="folder-route">Itinéraire de visite</button>
+              <button type="button" class="btn btn-secondary" id="folder-print">Rapport client (PDF)</button>
             </div>
+            <p id="folder-feedback" class="feedback" role="status" aria-live="polite"></p>
+            <div class="status-filter" id="status-filter" role="group" aria-label="Filtrer par statut"></div>
             <p id="folder-empty" class="hint">Ce dossier est vide. Ajoutez des communes avec le bouton dossier de la liste ou de la fiche d'une commune.</p>
             <ul id="folder-cities" class="favorites-list" aria-label="Communes du dossier"></ul>
+            <div class="actions folder-admin">
+              <button type="button" class="btn btn-ghost" id="folder-rename">Renommer le dossier</button>
+              <button type="button" class="btn btn-ghost" id="folder-delete">Supprimer le dossier</button>
+            </div>
           </div>
         </section>
 
@@ -310,6 +412,6 @@
     })();
   </script>
   <script src="vendor/leaflet-1.9.4/leaflet.js" defer></script>
-  <script type="module" src="js/app.js?v=644d8ba02b"></script>
+  <script type="module" src="js/app.js?v=8f7c4c29af"></script>
 </body>
 </html>

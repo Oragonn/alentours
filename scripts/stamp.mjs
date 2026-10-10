@@ -24,6 +24,7 @@ export const DATA_FILES = [
   'data/regions.json',
   'data/population-trend.json',
   'data/prix.json',
+  'data/equipements.json',
 ];
 
 /** Empreinte courte du contenu (fins de ligne normalisées). */

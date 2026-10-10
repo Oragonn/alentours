@@ -1,6 +1,7 @@
 // Chargement des fichiers de données statiques.
 
 import { prepareData } from './lib/commune.js';
+import { amenityCounts } from './lib/amenities.js';
 
 // Empreintes des fichiers de données (bloc généré par npm run stamp dans
 // index.html) : une nouvelle version des données n'est jamais lue depuis un
@@ -35,11 +36,12 @@ export async function loadData() {
  * et prix DVF. Une erreur de chargement n'empêche pas le site de fonctionner.
  */
 export async function loadInsights() {
-  const [trend, prices] = await Promise.allSettled([
+  const [trend, prices, amenities] = await Promise.allSettled([
     fetchJson('data/population-trend.json'),
     fetchJson('data/prix.json'),
+    fetchJson('data/equipements.json'),
   ]);
-  const insights = { trendLoaded: true, pricesLoaded: true, trend: null, prices: null, pricesMeta: null };
+  const insights = { trendLoaded: true, pricesLoaded: true, trend: null, prices: null, pricesMeta: null, amenities: null };
   if (trend.status === 'fulfilled') {
     const { years, data } = trend.value;
     insights.trend = {
@@ -66,6 +68,11 @@ export async function loadInsights() {
         };
       },
     };
+  }
+  if (amenities.status === 'fulfilled') {
+    const { meta, fields, data } = amenities.value;
+    insights.amenitiesMeta = meta ?? {};
+    insights.amenities = { get: (code) => amenityCounts(data[code], fields) };
   }
   return insights;
 }

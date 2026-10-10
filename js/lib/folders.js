@@ -7,6 +7,7 @@
 //   supprime : dossier supprimé (marque gardée TOMBSTONE_DAYS jours).
 
 import {
+  STATUSES,
   addFavorite,
   cleanFavorites,
   isFavorite,
@@ -19,6 +20,25 @@ import {
 } from './favorites.js';
 
 export const MAX_FOLDERS = 50;
+
+// Fiche du client (champs facultatifs)
+export const BRIEF_FIELDS = ['client', 'budget', 'type', 'surface', 'travail', 'criteres'];
+
+/** Nettoie la fiche client d'un dossier. */
+export function cleanBrief(b) {
+  if (!b || typeof b !== 'object') return null;
+  const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+  const brief = {
+    client: text(b.client, 100),
+    budget: num(b.budget),
+    type: b.type === 'appartement' ? 'appartement' : b.type === 'maison' ? 'maison' : null,
+    surface: num(b.surface),
+    travail: text(b.travail, 200),
+    criteres: text(b.criteres, 2000),
+  };
+  return Object.values(brief).some((v) => v) ? brief : null;
+}
 export const MAX_FOLDER_NAME = 60;
 
 const isDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));
@@ -41,6 +61,8 @@ function cleanFolder(f) {
     modifie: isDate(f.modifie) ? f.modifie : cree,
     villes: f.supprime === true ? [] : cleanFavorites(f.villes),
   };
+  const brief = f.supprime === true ? null : cleanBrief(f.fiche);
+  if (brief) folder.fiche = brief;
   if (f.supprime === true) folder.supprime = true;
   return folder;
 }
@@ -96,6 +118,27 @@ export function removeFromFolder(folders, id, code, now = new Date()) {
   return update(folders, id, (f) => ({ ...f, villes: removeFavorite(f.villes, code, now) }));
 }
 
+/** Fiche client du dossier (remplace l'ancienne). */
+export function setFolderBrief(folders, id, brief, now = new Date()) {
+  const clean = cleanBrief(brief);
+  return update(folders, id, (f) => {
+    const { fiche, ...rest } = f;
+    return { ...rest, ...(clean ? { fiche: clean } : {}), modifie: iso(now) };
+  });
+}
+
+/** Statut d'une ville du dossier (null = aucun). */
+export function setFolderStatus(folders, id, code, statut, now = new Date()) {
+  return update(folders, id, (f) => ({
+    ...f,
+    villes: f.villes.map((v) => {
+      if (v.code !== code || v.supprime) return v;
+      const { statut: _old, ...rest } = v;
+      return { ...rest, ...(STATUSES[statut] ? { statut } : {}), modifie: iso(now) };
+    }),
+  }));
+}
+
 export function setFolderNote(folders, id, code, note, now = new Date()) {
   return update(folders, id, (f) => ({ ...f, villes: setNote(f.villes, code, note, now) }));
 }
@@ -130,6 +173,7 @@ export function sameFolders(a, b) {
     return (
       o &&
       o.nom === f.nom &&
+      JSON.stringify(o.fiche ?? null) === JSON.stringify(f.fiche ?? null) &&
       o.modifie === f.modifie &&
       Boolean(o.supprime) === Boolean(f.supprime) &&
       sameFavorites(o.villes ?? [], f.villes ?? [])

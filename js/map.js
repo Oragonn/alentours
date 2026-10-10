@@ -248,8 +248,9 @@ export class MapView {
   // ---- Recherche ---------------------------------------------------------
 
   /** Dessine les cercles, les points de départ et les marqueurs. */
-  render({ points, colors, results, names, favorites }) {
+  render({ points, colors, results, names, favorites, colorOf = null }) {
     if (favorites) this.favoriteCodes = favorites;
+    this.colorOf = colorOf;
     this.points = points;
     this.colors = colors;
     this.names = names;
@@ -321,6 +322,20 @@ export class MapView {
     label(p.radius);
   }
 
+  /** Zones atteignables en voiture (GeoJSON), une par point de départ. */
+  setDriveZones(geoms, colors = []) {
+    this.driveLayer ??= L.layerGroup().addTo(this.map);
+    this.driveLayer.clearLayers();
+    (geoms ?? []).forEach((g, i) => {
+      const color = colors[i] ?? '#2563eb';
+      L.geoJSON(g, {
+        renderer: this.zonesRenderer,
+        interactive: false,
+        style: { color, weight: 2, dashArray: '2 6', fillColor: color, fillOpacity: 0.1 },
+      }).addTo(this.driveLayer);
+    });
+  }
+
   setRings(on) {
     this.rings = on;
     this.drawZones();
@@ -334,6 +349,10 @@ export class MapView {
       moyenne: cssVar('--cat-moyenne'),
       grande: cssVar('--cat-grande'),
       inconnue: cssVar('--cat-inconnue'),
+      'budget-ok': cssVar('--budget-ok'),
+      'budget-limite': cssVar('--budget-limite'),
+      'budget-trop': cssVar('--budget-trop'),
+      'budget-inconnu': cssVar('--budget-inconnu'),
       // Contour blanc : les points se détachent sur tous les fonds
       stroke: '#ffffff',
     };
@@ -347,12 +366,14 @@ export class MapView {
 
   markerStyle(commune, colors) {
     const cat = sizeCategoryOf(commune.population).id;
+    // Couleur : catégorie de taille, ou état du budget si un budget est saisi
+    const fill = this.colorOf ? colors[this.colorOf(commune)] ?? colors[cat] : colors[cat];
     if (this.favoriteCodes?.has(commune.code)) {
       return {
         radius: markerRadius(commune.population, MARKER, this.map.getZoom()) + 1,
         color: '#f5b301',
         weight: 3.5,
-        fillColor: colors[cat],
+        fillColor: fill,
         fillOpacity: 0.95,
       };
     }
@@ -360,7 +381,7 @@ export class MapView {
       radius: markerRadius(commune.population, MARKER, this.map.getZoom()),
       color: colors.stroke,
       weight: this.style === 'satellite' ? 2 : 1.5,
-      fillColor: colors[cat],
+      fillColor: fill,
       fillOpacity: 0.9,
     };
   }
@@ -511,12 +532,14 @@ export class MapView {
   // ---- Favoris -----------------------------------------------------------
 
   /** Favoris (étoile) ou villes du dossier ouvert (kind = 'folder'). */
-  showFavorites(communes, kind = 'fav') {
+  showFavorites(communes, kind = 'fav', statusOf = () => null) {
     this.favoritesLayer.clearLayers();
     const html = kind === 'folder' ? '<span class="folder-dot"></span>' : '<span>★</span>';
     for (const c of communes) {
+      const status = kind === 'folder' ? statusOf(c.code) : null;
+      const className = kind === 'folder' ? `fav-marker folder-marker${status ? ` status-${status}` : ''}` : 'fav-marker';
       const m = L.marker([c.lat, c.lon], {
-        icon: L.divIcon({ className: kind === 'folder' ? 'fav-marker folder-marker' : 'fav-marker', html, iconSize: [26, 26], iconAnchor: [13, 13] }),
+        icon: L.divIcon({ className, html, iconSize: [26, 26], iconAnchor: [13, 13] }),
         title: c.nom,
         alt: c.nom,
         zIndexOffset: 500,

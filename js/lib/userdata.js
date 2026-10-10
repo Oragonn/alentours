@@ -43,11 +43,18 @@ export function exportUserData({ items, dossiers }, now = new Date()) {
     version: USER_FILE_VERSION,
     exporte: now.toISOString(),
     favoris: visibleFavorites(items).map(({ code, nom, ajoute }) => ({ code, nom, ajoute })),
-    dossiers: visibleFolders(dossiers).map(({ id, nom, cree, villes }) => ({
+    dossiers: visibleFolders(dossiers).map(({ id, nom, cree, fiche, villes }) => ({
       id,
       nom,
       cree,
-      villes: visibleFavorites(villes).map(({ code, nom: n, note, ajoute }) => ({ code, nom: n, note, ajoute })),
+      ...(fiche ? { fiche } : {}),
+      villes: visibleFavorites(villes).map(({ code, nom: n, note, ajoute, statut }) => ({
+        code,
+        nom: n,
+        note,
+        ajoute,
+        ...(statut ? { statut } : {}),
+      })),
     })),
   };
 }

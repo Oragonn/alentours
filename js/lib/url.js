@@ -4,6 +4,8 @@
 // Point sur carte : ?lat=50.62920&lon=3.05730&r=30
 // Plusieurs points (Phase 2) : ?pt=59350,20&pt=62041,15&pt=50.62920,3.05730,10
 // Filtres :         &reg=32&dep=59,62
+// Budget :          &budget=300000&bien=maison&surf=110&dansbudget=1
+// Trajet :          &trajet=30 (minutes en voiture)
 
 import { RADIUS } from '../config.js';
 import { formatSort, parseSort } from './sort.js';
@@ -11,6 +13,9 @@ import { formatSort, parseSort } from './sort.js';
 const CODE_RE = /^[0-9][0-9AB][0-9]{3}$/;
 const DEP_RE = /^(\d{2,3}|2A|2B)$/;
 const REG_RE = /^\d{2,3}$/;
+
+/** Durées proposées pour « Trajet max en voiture » (minutes). */
+export const DRIVE_TIMES = [15, 20, 30, 45, 60];
 
 const fixed5 = (n) => Number(n).toFixed(5);
 const enc = (v) => encodeURIComponent(v).replace(/%2C/gi, ',');
@@ -55,6 +60,12 @@ export function encodeSearch(state) {
   if (state.regions?.length) add('reg', state.regions.join(','));
   if (state.departements?.length) add('dep', state.departements.join(','));
   if (state.sort && !(state.sort.key === 'distance' && state.sort.dir === 'asc')) add('tri', formatSort(state.sort));
+  const b = state.budget;
+  if (b?.budget) add('budget', b.budget);
+  if (b?.budget && b.type) add('bien', b.type);
+  if (b?.budget && b.surface) add('surf', b.surface);
+  if (state.budgetOnly) add('dansbudget', 1);
+  if (state.driveMax) add('trajet', state.driveMax);
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
@@ -111,5 +122,24 @@ export function decodeSearch(query, { isKnownCode = () => true } = {}) {
 
   const sort = parseSort(params.get('tri'));
   if (sort) state.sort = sort;
+
+  const int = (name, min, max) => {
+    const v = params.get(name);
+    if (!/^\d{1,9}$/.test(v ?? '')) return null;
+    const n = Number(v);
+    return n >= min && n <= max ? n : null;
+  };
+  const budget = int('budget', 1000, 100000000);
+  if (budget) {
+    const bien = params.get('bien');
+    state.budget = {
+      budget,
+      type: bien === 'appartement' ? 'appartement' : 'maison',
+      surface: int('surf', 5, 5000),
+    };
+    if (params.get('dansbudget') === '1') state.budgetOnly = true;
+  }
+  const trajet = int('trajet', 1, 600);
+  if (trajet && DRIVE_TIMES.includes(trajet)) state.driveMax = trajet;
   return state;
 }
