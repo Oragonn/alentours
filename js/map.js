@@ -1,7 +1,8 @@
 // Carte Leaflet : fonds de carte, cercles de recherche, marqueurs des communes.
 
 /* global L */
-import { FRANCE_BOUNDS, MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
+import { FRANCE_BOUNDS, LABELS, MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
+import { labelMinPopulation, placeLabels } from './lib/labels.js';
 import { boundingBox, KM_PER_DEGREE, markerRadius } from './lib/geo.js';
 import { sizeCategoryOf } from './lib/commune.js';
 import { load, save } from './storage.js';
@@ -92,6 +93,8 @@ export class MapView {
 
     map.createPane('zonesPane').style.zIndex = 350;
     map.createPane('highlightPane').style.zIndex = 450;
+    // Noms des communes : au-dessus des points, sous les épingles (600)
+    map.createPane('labelsPane').style.zIndex = 550;
     map.getPane('highlightPane').style.pointerEvents = 'none';
 
     this.renderer = L.canvas({ padding: 0.5, tolerance: 5 });
@@ -103,12 +106,20 @@ export class MapView {
     this.resultsLayer = L.layerGroup().addTo(map);
     this.highlightLayer = L.layerGroup().addTo(map);
     this.startLayer = L.layerGroup().addTo(map);
+    this.labelsLayer = L.layerGroup().addTo(map);
+    this.pins = [];
     this.favoritesLayer = L.layerGroup();
 
     this.tooltip = L.tooltip({ className: 'commune-tooltip', direction: 'top', opacity: 1 });
 
     this.addStyleControl();
     this.setupClick();
+    // Les points grossissent en zoomant ; les noms suivent la vue
+    map.on('zoomend', () => {
+      this.restyleMarkers();
+      this.updatePins();
+    });
+    map.on('moveend', () => this.updateLabels());
     this.placeAttribution();
     MOBILE_QUERY.addEventListener('change', () => this.placeAttribution());
   }
@@ -151,6 +162,7 @@ export class MapView {
     this.style = style;
     save(STORAGE_KEYS.mapStyle, style);
     this.updateBaseLayer();
+    this.restyleMarkers();
   }
 
   updateBaseLayer() {
@@ -164,6 +176,8 @@ export class MapView {
       this.baseKey = key;
       if (key === 'satellite') this.watchSatellite(this.baseLayer);
     }
+    // Couleurs des noms adaptées à la photo aérienne
+    this.map.getContainer().classList.toggle('map-satellite', this.style === 'satellite');
     for (const btn of this.styleControlEl?.querySelectorAll('button') ?? []) {
       btn.setAttribute('aria-pressed', String(btn.dataset.style === this.style));
     }
@@ -245,6 +259,7 @@ export class MapView {
     this.zonesLayer.clearLayers();
     this.ringsLayer.clearLayers();
     this.startLayer.clearLayers();
+    this.pins = [];
     this.points.forEach((p, i) => {
       if (!p) return;
       const color = this.colors[i];
@@ -259,16 +274,25 @@ export class MapView {
       }).addTo(this.zonesLayer);
       // Départ depuis une commune : l'épingle pointe juste au-dessus de son
       // marqueur, qui reste visible et cliquable à tous les niveaux de zoom.
-      const lift = p.isCommune ? markerRadius(p.population, MARKER) + 2 : 0;
-      L.marker([p.lat, p.lon], {
-        icon: pinIcon(color, lift),
+      const pin = L.marker([p.lat, p.lon], {
+        icon: pinIcon(color, this.pinLift(p)),
         keyboard: false,
         interactive: false,
         zIndexOffset: 1000,
         alt: this.names?.[i] ?? 'Point de départ',
       }).addTo(this.startLayer);
+      this.pins.push({ pin, p, color });
       if (this.rings) this.drawRings(p, color);
     });
+  }
+
+  pinLift(p) {
+    return p.isCommune ? markerRadius(p.population, MARKER, this.map.getZoom()) + 2 : 0;
+  }
+
+  /** Après un zoom : l'épingle reste juste au-dessus du point de la commune. */
+  updatePins() {
+    for (const { pin, p, color } of this.pins) pin.setIcon(pinIcon(color, this.pinLift(p)));
   }
 
   drawRings(p, color) {
@@ -303,18 +327,19 @@ export class MapView {
       moyenne: cssVar('--cat-moyenne'),
       grande: cssVar('--cat-grande'),
       inconnue: cssVar('--cat-inconnue'),
-      stroke: this.theme === 'dark' ? '#0b0b0d' : '#ffffff',
+      // Contour blanc : les points se détachent sur tous les fonds
+      stroke: '#ffffff',
     };
   }
 
   markerStyle(commune, colors) {
     const cat = sizeCategoryOf(commune.population).id;
     return {
-      radius: markerRadius(commune.population, MARKER),
+      radius: markerRadius(commune.population, MARKER, this.map.getZoom()),
       color: colors.stroke,
-      weight: 1,
+      weight: this.style === 'satellite' ? 2 : 1.5,
       fillColor: colors[cat],
-      fillOpacity: 0.85,
+      fillOpacity: 0.9,
     };
   }
 
@@ -342,12 +367,57 @@ export class MapView {
       this.markers.set(commune.code, m);
     }
     if (this.highlighted) this.highlight(this.highlighted);
+    this.updateLabels();
+  }
+
+  /** Noms des communes visibles, sans chevauchement (les plus peuplées d'abord). */
+  updateLabels() {
+    this.labelsLayer.clearLayers();
+    if (!this.results.length) return;
+    const zoom = this.map.getZoom();
+    const minPopulation = labelMinPopulation(zoom, LABELS.steps);
+    const size = this.map.getSize();
+    const candidates = [];
+    for (const { commune } of this.results) {
+      if ((commune.population ?? 0) < minPopulation) continue;
+      const pt = this.map.latLngToContainerPoint([commune.lat, commune.lon]);
+      if (pt.x < -200 || pt.y < -20 || pt.x > size.x + 20 || pt.y > size.y + 20) continue;
+      candidates.push({
+        commune,
+        name: commune.nom,
+        x: pt.x,
+        y: pt.y,
+        r: markerRadius(commune.population, MARKER, zoom),
+        population: commune.population,
+      });
+    }
+    const placed = placeLabels(candidates, { width: size.x, height: size.y, maxCount: LABELS.maxCount });
+    for (const { commune, r } of placed) {
+      const span = document.createElement('span');
+      span.textContent = commune.nom;
+      span.style.transform = `translate(${Math.round(r + 3)}px, -50%)`;
+      if ((commune.population ?? 0) >= 50000) span.className = 'big';
+      const label = L.marker([commune.lat, commune.lon], {
+        pane: 'labelsPane',
+        icon: L.divIcon({ className: 'commune-label', html: span, iconSize: [0, 0], iconAnchor: [0, 0] }),
+        keyboard: false,
+      });
+      label.on('click', (e) => {
+        L.DomEvent.stopPropagation(e);
+        this.handlers.onCommuneClick?.(commune.code);
+      });
+      label.addTo(this.labelsLayer);
+    }
   }
 
   restyleMarkers() {
     const colors = this.categoryColors();
     for (const { commune } of this.results) {
-      this.markers.get(commune.code)?.setStyle(this.markerStyle(commune, colors));
+      const m = this.markers.get(commune.code);
+      if (!m) continue;
+      const style = this.markerStyle(commune, colors);
+      m.setRadius(style.radius);
+      m.setStyle(style);
     }
     if (this.highlighted) this.highlight(this.highlighted);
   }
@@ -365,7 +435,7 @@ export class MapView {
     if (!commune) return;
     L.circleMarker([commune.lat, commune.lon], {
       renderer: this.highlightRenderer,
-      radius: markerRadius(commune.population, MARKER) + 5,
+      radius: markerRadius(commune.population, MARKER, this.map.getZoom()) + 5,
       color: cssVar('--accent'),
       weight: 3,
       fill: false,

@@ -19,8 +19,30 @@ export const RADIUS = { min: 1, max: 100, step: 1, default: 20 };
 // Intervalle des cercles de distance, en km
 export const RING_INTERVAL_KM = 10;
 
-// Taille des marqueurs : échelle racine carrée, bornée
-export const MARKER = { minPx: 3, maxPx: 20, referencePopulation: 500000 };
+// Taille des marqueurs : échelle racine carrée, bornée. En zoomant, les
+// points grossissent (× zoomGrowth par niveau au-delà de zoomFrom, jusqu'à
+// × zoomMax) pour rester visibles, en particulier sur la vue satellite.
+export const MARKER = {
+  minPx: 4,
+  maxPx: 20,
+  referencePopulation: 500000,
+  zoomFrom: 9,
+  zoomGrowth: 0.25,
+  zoomMax: 1.8,
+};
+
+// Noms des communes sur la carte : population minimale selon le zoom
+// ([zoom maximal, population minimale]) ; au-delà, tous les noms.
+export const LABELS = {
+  maxCount: 250,
+  steps: [
+    [7, 100000],
+    [8, 30000],
+    [9, 8000],
+    [10, 2000],
+    [11, 500],
+  ],
+};
 
 // Nombre de lignes affichées à la fois dans la liste
 export const LIST_PAGE_SIZE = 100;

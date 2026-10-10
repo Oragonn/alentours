@@ -1445,6 +1445,43 @@ li.selected .result {
   border-top-color: var(--border);
 }
 
+/* Noms des communes sur la carte */
+.commune-label {
+  background: none;
+  border: 0;
+}
+
+.commune-label span {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
+  text-shadow:
+    0 0 2px var(--bg),
+    0 0 3px var(--bg),
+    0 0 4px var(--bg),
+    0 0 6px var(--bg);
+  cursor: pointer;
+}
+
+.commune-label span.big {
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.map-satellite .commune-label span {
+  color: #ffffff;
+  text-shadow:
+    0 0 2px #000,
+    0 0 3px #000,
+    0 0 5px #000,
+    0 1px 6px #000;
+}
+
 .ring-label {
   background: none;
   border: 0;

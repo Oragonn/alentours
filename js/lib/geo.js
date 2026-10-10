@@ -46,11 +46,23 @@ export function zonesOverlap(points) {
   return true;
 }
 
-/** Rayon du marqueur en pixels : échelle racine carrée, bornée. */
-export function markerRadius(population, { minPx, maxPx, referencePopulation }) {
-  if (!Number.isFinite(population) || population <= 0) return minPx;
-  const r = minPx + (maxPx - minPx) * Math.sqrt(population / referencePopulation);
-  return Math.max(minPx, Math.min(maxPx, r));
+/** Facteur d'agrandissement des marqueurs selon le zoom. */
+export function zoomScale(zoom, { zoomFrom = Infinity, zoomGrowth = 0, zoomMax = 1 } = {}) {
+  if (!Number.isFinite(zoom) || zoom <= zoomFrom) return 1;
+  return Math.min(zoomMax, 1 + (zoom - zoomFrom) * zoomGrowth);
+}
+
+/**
+ * Rayon du marqueur en pixels : échelle racine carrée de la population,
+ * bornée, puis agrandie selon le zoom (si fourni).
+ */
+export function markerRadius(population, cfg, zoom) {
+  const { minPx, maxPx, referencePopulation } = cfg;
+  let r = minPx;
+  if (Number.isFinite(population) && population > 0) {
+    r = Math.max(minPx, Math.min(maxPx, minPx + (maxPx - minPx) * Math.sqrt(population / referencePopulation)));
+  }
+  return r * zoomScale(zoom, cfg);
 }
 
 export { KM_PER_DEGREE };

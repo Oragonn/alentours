@@ -107,10 +107,14 @@ test('densité', () => {
   assert.equal(density(100, null), null);
 });
 
-test('markerRadius : racine carrée bornée entre 3 et 20 px', () => {
-  assert.equal(markerRadius(0, MARKER), 3);
-  assert.equal(markerRadius(null, MARKER), 3);
-  assert.equal(markerRadius(5_000_000, MARKER), 20);
+test('markerRadius : racine carrée bornée, agrandie en zoomant', () => {
+  assert.equal(markerRadius(0, MARKER), MARKER.minPx);
+  assert.equal(markerRadius(null, MARKER), MARKER.minPx);
+  assert.equal(markerRadius(5_000_000, MARKER), MARKER.maxPx);
+  // Zoom : pas d'agrandissement jusqu'à zoomFrom, puis plafonné à zoomMax
+  assert.equal(markerRadius(0, MARKER, MARKER.zoomFrom), MARKER.minPx);
+  assert.equal(markerRadius(0, MARKER, MARKER.zoomFrom + 2), MARKER.minPx * (1 + 2 * MARKER.zoomGrowth));
+  assert.equal(markerRadius(0, MARKER, 18), MARKER.minPx * MARKER.zoomMax);
   const small = markerRadius(10000, MARKER);
   const big = markerRadius(100000, MARKER);
   assert.ok(small > 3 && big > small && big < 20);
@@ -123,4 +127,25 @@ test('zonesOverlap', () => {
   assert.equal(zonesOverlap([lille, arras]), true);
   assert.equal(zonesOverlap([{ ...lille, radius: 20 }, { ...arras, radius: 20 }]), false);
   assert.equal(zonesOverlap([lille]), true);
+});
+
+test('noms sur la carte : seuil selon le zoom et sans chevauchement', async () => {
+  const { labelMinPopulation, placeLabels } = await import('../js/lib/labels.js');
+  const steps = [
+    [8, 30000],
+    [10, 2000],
+  ];
+  assert.equal(labelMinPopulation(6, steps), 30000);
+  assert.equal(labelMinPopulation(9, steps), 2000);
+  assert.equal(labelMinPopulation(12, steps), 0);
+  const items = [
+    { code: 'a', name: 'Petiteville', x: 100, y: 100, r: 4, population: 500 },
+    { code: 'b', name: 'Grandeville', x: 102, y: 104, r: 10, population: 90000 },
+    { code: 'c', name: 'Loin', x: 400, y: 300, r: 4, population: 100 },
+    { code: 'd', name: 'Dehors', x: 2000, y: 100, r: 4, population: 1e6 },
+  ];
+  const placed = placeLabels(items, { width: 800, height: 600 });
+  // La plus peuplée gagne en cas de chevauchement ; hors écran ignorée
+  assert.deepEqual(placed.map((p) => p.code), ['b', 'c']);
+  assert.equal(placeLabels(items, { width: 800, height: 600, maxCount: 1 }).length, 1);
 });
