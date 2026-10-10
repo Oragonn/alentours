@@ -31,6 +31,11 @@ export const SEARCH_DEBOUNCE_MS = 150;
 export const AUTOCOMPLETE = { minChars: 2, maxResults: 10 };
 
 export const MAP_START = { lat: 46.6, lon: 2.5, zoom: 6 };
+// Vue de départ : France métropolitaine entière (zoom 6 sur grand écran, 5 sur téléphone)
+export const FRANCE_BOUNDS = [
+  [42.3, -4.8],
+  [51.1, 8.2],
+];
 
 // Phase 2
 export const MAX_STARTING_POINTS = 5;

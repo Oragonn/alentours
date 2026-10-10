@@ -1,6 +1,6 @@
 // Télécharge toutes les communes françaises depuis geo.api.gouv.fr et écrit
 // des fichiers statiques compacts dans data/ :
-//   - data/communes.json      une ligne (tableau) par commune
+//   - data/communes.json      format en colonnes (voir encodeColumns)
 //   - data/departements.json  code → nom
 //   - data/regions.json       code → nom
 //
@@ -18,8 +18,48 @@ const API_URL =
 
 const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 
-// Ordre des champs de chaque ligne de communes.json
+// Champs d'un enregistrement intermédiaire (avant passage en colonnes)
 export const FIELDS = ['code', 'nom', 'lat', 'lon', 'population', 'surface', 'dep', 'reg', 'codesPostaux'];
+
+// Précision : coordonnées à 4 décimales (≈ 11 m), surface au centième de km²
+export const COORD_FACTOR = 1e4;
+export const SURFACE_FACTOR = 100;
+
+const delta = (values) => values.map((v, i) => (i ? v - values[i - 1] : v));
+
+/**
+ * Passe les enregistrements (triés par code) en colonnes, plus compactes une
+ * fois compressées :
+ *   dep, reg     codes département et région
+ *   code         partie du code INSEE après le département, en entier,
+ *                écart avec la commune précédente du même département
+ *   nom, population
+ *   lat, lon     entiers (× COORD_FACTOR), écart avec la commune précédente
+ *   surface      entier (× SURFACE_FACTOR) ou null
+ *   cp           codes postaux séparés par une espace
+ * Le décodage est fait par prepareData() dans js/lib/commune.js.
+ */
+export function encodeColumns(records) {
+  const col = (i) => records.map((r) => r[i]);
+  const suffix = (r) => Number(r[0].slice(r[6].length));
+  const code = records.map((r, i) => {
+    if (!r[0].startsWith(r[6])) throw new Error(`Code ${r[0]} hors du département ${r[6]}`);
+    const prev = records[i - 1];
+    return prev && prev[6] === r[6] ? suffix(r) - suffix(prev) : suffix(r);
+  });
+  return {
+    count: records.length,
+    dep: col(6),
+    reg: col(7),
+    code,
+    nom: col(1),
+    population: col(4),
+    lat: delta(col(2).map((v) => Math.round(v * COORD_FACTOR))),
+    lon: delta(col(3).map((v) => Math.round(v * COORD_FACTOR))),
+    surface: col(5).map((v) => (v == null ? null : Math.round(v * SURFACE_FACTOR))),
+    cp: col(8).map((cps) => cps.join(' ')),
+  };
+}
 
 const round = (value, decimals) => {
   const f = 10 ** decimals;
@@ -79,9 +119,13 @@ async function main() {
   const sortKeys = (obj) =>
     Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
 
-  // Une commune par ligne : compact mais lisible dans un diff git
-  const body = records.map((r) => JSON.stringify(r)).join(',\n');
-  const communesJson = `{"meta":${JSON.stringify(meta)},"fields":${JSON.stringify(FIELDS)},"communes":[\n${body}\n]}\n`;
+  // Une colonne par ligne
+  const columns = encodeColumns(records);
+  const body = Object.entries(columns)
+    .map(([key, values]) => `${JSON.stringify(key)}:${JSON.stringify(values)}`)
+    .join(',\n');
+  const format = { version: 2, coordFactor: COORD_FACTOR, surfaceFactor: SURFACE_FACTOR };
+  const communesJson = `{"meta":${JSON.stringify(meta)},"format":${JSON.stringify(format)},\n${body}\n}\n`;
 
   await mkdir(DATA_DIR, { recursive: true });
   await writeFile(join(DATA_DIR, 'communes.json'), communesJson);

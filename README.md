@@ -57,7 +57,18 @@ npm run data:all                            # les trois scripts à la suite
 ```
 
 Le site ne contacte jamais ces API pour faire une recherche : seules les
-tuiles de carte sont chargées depuis Internet.
+tuiles de carte sont chargées depuis Internet. La tendance démographique et
+les prix sont chargés à la demande (ouverture d'une fiche, export, impression).
+
+`communes.json` est stocké en colonnes (codes et coordonnées en écarts
+successifs) pour rester léger : environ 0,5 Mo compressé pour ~35 000
+communes. Le format est décrit dans `encodeColumns()`
+(`scripts/build-communes.mjs`) et décodé par `decodeCommunes()`
+(`js/lib/commune.js`).
+
+Paris, Lyon et Marseille n'apparaissent dans certaines sources que par
+arrondissement : les scripts les regroupent (somme des populations, moyenne
+des prix médians pondérée par le nombre de ventes).
 
 ## Déployer sur GitHub Pages
 
@@ -84,6 +95,8 @@ js/app.js           point d'entrée : formulaire, liste, fiche, partage
 js/map.js           carte Leaflet
 js/config.js        nom du site, seuils, valeurs par défaut
 js/lib/             logique pure, testée avec Node (aucun accès au DOM)
+                    (chaque module de js/ doit aussi figurer en
+                    <link rel="modulepreload"> dans index.html : un test le vérifie)
 js/ui/              composants d'interface
 data/               données générées (committées)
 scripts/            scripts de préparation des données

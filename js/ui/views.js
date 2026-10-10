@@ -106,7 +106,7 @@ function sparkline(points) {
 }
 
 function trendCell(insights, code) {
-  if (!insights.trend) return h('span', { class: 'muted' }, insights.trendLoaded ? NA : 'Bientôt disponible');
+  if (!insights.trend) return h('span', { class: 'muted' }, insights.trendLoaded ? NA : 'Chargement…');
   const series = insights.trend.get(code);
   const trend = populationTrend(series);
   if (!trend) return h('span', { class: 'muted' }, NA);
@@ -118,7 +118,7 @@ function trendCell(insights, code) {
 }
 
 function priceCell(insights, commune) {
-  if (!insights.prices) return h('span', { class: 'muted' }, insights.pricesLoaded ? NA : 'Bientôt disponible');
+  if (!insights.prices) return h('span', { class: 'muted' }, insights.pricesLoaded ? NA : 'Chargement…');
   const info = priceInfo(insights.prices.get(commune.code), commune.dep, insights.pricesMeta);
   const frag = document.createDocumentFragment();
   frag.append(h('span', { class: info.status === 'ok' ? null : 'muted' }, info.label));

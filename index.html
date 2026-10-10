@@ -19,10 +19,31 @@
       } catch (e) {}
     })();
   </script>
-  <link rel="preload" href="data/communes.json" as="fetch" crossorigin>
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="vendor/leaflet-1.9.4/leaflet.css">
   <link rel="stylesheet" href="css/style.css">
   <link rel="modulepreload" href="js/app.js">
+  <!-- Tous les modules : évite une cascade de requêtes (à tenir à jour) -->
+  <link rel="modulepreload" href="js/config.js">
+  <link rel="modulepreload" href="js/data.js">
+  <link rel="modulepreload" href="js/lib/commune.js">
+  <link rel="modulepreload" href="js/lib/csv.js">
+  <link rel="modulepreload" href="js/lib/favorites.js">
+  <link rel="modulepreload" href="js/lib/geo.js">
+  <link rel="modulepreload" href="js/lib/insights.js">
+  <link rel="modulepreload" href="js/lib/search.js">
+  <link rel="modulepreload" href="js/lib/sort.js">
+  <link rel="modulepreload" href="js/lib/suggest.js">
+  <link rel="modulepreload" href="js/lib/summary.js">
+  <link rel="modulepreload" href="js/lib/text.js">
+  <link rel="modulepreload" href="js/lib/url.js">
+  <link rel="modulepreload" href="js/map.js">
+  <link rel="modulepreload" href="js/storage.js">
+  <link rel="modulepreload" href="js/theme.js">
+  <link rel="modulepreload" href="js/ui/autocomplete.js">
+  <link rel="modulepreload" href="js/ui/dom.js">
+  <link rel="modulepreload" href="js/ui/sheet.js">
+  <link rel="modulepreload" href="js/ui/views.js">
 </head>
 <body>
   <a class="skip-link" href="#q-0">Aller à la recherche</a>

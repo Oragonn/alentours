@@ -289,9 +289,14 @@ textarea {
     position: relative;
   }
 
+  /* La carte s'arrête au bord du panneau : seules les tuiles visibles sont
+     chargées. Le script ajuste « bottom » quand le panneau change d'état. */
   .map-area {
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 52dvh;
   }
 
   .panel {
@@ -370,13 +375,17 @@ textarea {
   }
 }
 
+/* Mouvements réduits : pas d'animation du panneau ni des commandes.
+   (Les animations de la carte sont coupées dans js/map.js.) */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.01ms !important;
-    animation-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .panel,
+  .switch-track,
+  .switch-track::after,
+  .admin-filters summary::before {
+    transition: none !important;
+  }
+  html {
+    scroll-behavior: auto;
   }
 }
 
@@ -573,6 +582,11 @@ input[aria-invalid="true"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* Place réservée au premier point avant l'exécution du script (évite un décalage) */
+.points:empty {
+  min-height: 157px;
 }
 
 .point {

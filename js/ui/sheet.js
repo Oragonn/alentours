@@ -3,7 +3,7 @@
 const MOBILE = window.matchMedia('(max-width: 767.98px)');
 const STATES = ['collapsed', 'half', 'full'];
 
-export function createSheet({ panel, grip, handle, header, toggle, onChange }) {
+export function createSheet({ panel, grip, handle, header, toggle, onChange, onDragStart }) {
   let state = panel.dataset.sheet || 'half';
   let suppressClick = false;
 
@@ -39,6 +39,9 @@ export function createSheet({ panel, grip, handle, header, toggle, onChange }) {
     return h[state] ?? 0;
   }
 
+  /** Hauteur du panneau réduit (poignée + en-tête). */
+  const peekHeight = () => grip.offsetHeight + header.offsetHeight;
+
   handle.addEventListener('click', () => {
     if (suppressClick) {
       suppressClick = false;
@@ -63,6 +66,7 @@ export function createSheet({ panel, grip, handle, header, toggle, onChange }) {
     if (!drag) return;
     const dy = e.clientY - drag.startY;
     if (!drag.moved && Math.abs(dy) < 6) return;
+    if (!drag.moved) onDragStart?.();
     drag.moved = true;
     panel.classList.add('dragging');
     const min = grip.offsetHeight + header.offsetHeight;
@@ -115,5 +119,6 @@ export function createSheet({ panel, grip, handle, header, toggle, onChange }) {
     getState: () => state,
     isMobile,
     coveredHeight,
+    peekHeight,
   };
 }

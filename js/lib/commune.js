@@ -24,12 +24,37 @@ export function density(population, surfaceKm2) {
   return Math.round(population / surfaceKm2);
 }
 
-/** Transforme une ligne de communes.json en objet. */
-export function communeFromRecord(record, fields) {
-  const c = {};
-  for (let i = 0; i < fields.length; i++) c[fields[i]] = record[i];
-  c.key = normalize(c.nom);
-  return c;
+/**
+ * Décode communes.json (format en colonnes, voir encodeColumns dans
+ * scripts/build-communes.mjs) en tableau d'objets communes.
+ */
+export function decodeCommunes(json) {
+  const { coordFactor, surfaceFactor } = json.format;
+  const communes = new Array(json.count);
+  let lat = 0;
+  let lon = 0;
+  let suffix = 0;
+  for (let i = 0; i < json.count; i++) {
+    const dep = json.dep[i];
+    suffix = i > 0 && json.dep[i - 1] === dep ? suffix + json.code[i] : json.code[i];
+    lat += json.lat[i];
+    lon += json.lon[i];
+    const surface = json.surface[i];
+    const nom = json.nom[i];
+    communes[i] = {
+      code: dep + String(suffix).padStart(5 - dep.length, '0'),
+      nom,
+      lat: lat / coordFactor,
+      lon: lon / coordFactor,
+      population: json.population[i],
+      surface: surface == null ? null : surface / surfaceFactor,
+      dep,
+      reg: json.reg[i],
+      codesPostaux: json.cp[i] ? json.cp[i].split(' ') : [],
+      key: normalize(nom),
+    };
+  }
+  return communes;
 }
 
 /**
@@ -37,7 +62,7 @@ export function communeFromRecord(record, fields) {
  * et par code postal, tables des départements et régions.
  */
 export function prepareData({ communes: json, departements = {}, regions = {} }) {
-  const communes = json.communes.map((r) => communeFromRecord(r, json.fields));
+  const communes = decodeCommunes(json);
   const byCode = new Map();
   const byPostalCode = new Map();
   const depRegion = new Map();

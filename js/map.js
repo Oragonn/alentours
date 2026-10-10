@@ -1,7 +1,7 @@
 // Carte Leaflet : fonds de carte, cercles de recherche, marqueurs des communes.
 
 /* global L */
-import { MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
+import { FRANCE_BOUNDS, MAP_START, MARKER, RING_INTERVAL_KM, STORAGE_KEYS } from './config.js';
 import { boundingBox, KM_PER_DEGREE, markerRadius } from './lib/geo.js';
 import { sizeCategoryOf } from './lib/commune.js';
 import { load, save } from './storage.js';
@@ -79,7 +79,13 @@ export class MapView {
       zoomControl: false,
       preferCanvas: true,
       worldCopyJump: true,
+      zoomAnimation: !reducedMotion(),
+      fadeAnimation: !reducedMotion(),
+      markerZoomAnimation: !reducedMotion(),
     }));
+    // Cadre la France métropolitaine (sans animation) avant de charger les tuiles
+    const startZoom = Math.min(MAP_START.zoom, map.getBoundsZoom(FRANCE_BOUNDS, false, L.point(8, 8)));
+    map.setView([MAP_START.lat, MAP_START.lon], startZoom, { animate: false });
     map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
     L.control.zoom({ position: 'topleft', zoomInTitle: 'Zoom avant', zoomOutTitle: 'Zoom arrière' }).addTo(map);
 
@@ -160,6 +166,22 @@ export class MapView {
     for (const btn of this.styleControlEl?.querySelectorAll('button') ?? []) {
       btn.setAttribute('aria-pressed', String(btn.dataset.style === this.style));
     }
+  }
+
+  /** Promesse résolue quand les tuiles visibles sont chargées (ou après `timeout` ms). */
+  whenTilesLoaded(timeout = 4000) {
+    return new Promise((resolve) => {
+      const layer = this.baseLayer;
+      if (!layer || !layer.isLoading()) {
+        setTimeout(resolve, 0);
+        return;
+      }
+      const timer = setTimeout(resolve, timeout);
+      layer.once('load', () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
   }
 
   /** Bascule vers l'imagerie Esri si la Géoplateforme IGN ne répond pas. */

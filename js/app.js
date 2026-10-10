@@ -166,6 +166,9 @@ const sheet = createSheet({
   handle: $('sheet-handle'),
   header: els.panel.querySelector('.panel-header'),
   toggle: $('sheet-toggle'),
+  onChange: () => syncMapBottom(),
+  // Pendant le glissement, la carte s'étend sous le panneau (pas de vide)
+  onDragStart: () => setMapBottom(sheet.peekHeight()),
 });
 
 const mapView = new MapView($('map'), {
@@ -173,12 +176,42 @@ const mapView = new MapView($('map'), {
   onCommuneClick: (code) => openDetails(code, 'map'),
   getPadding() {
     if (sheet.isMobile()) {
+      // La carte s'arrête déjà au panneau ; seule la fiche peut la recouvrir
       const detailsH = els.details.hidden ? 0 : els.details.offsetHeight;
-      return { bottom: Math.max(sheet.coveredHeight(), detailsH), right: 0 };
+      return { bottom: Math.max(0, detailsH - mapBottom), right: 0 };
     }
     return { bottom: 0, right: els.details.hidden ? 0 : els.details.offsetWidth + 12 };
   },
 });
+
+// ---- Hauteur de la carte sur mobile ----
+const mapArea = document.querySelector('.map-area');
+let mapBottom = null;
+let mapBottomTimer = null;
+
+function setMapBottom(px) {
+  clearTimeout(mapBottomTimer);
+  if (px === mapBottom) return;
+  mapBottom = px;
+  mapArea.style.bottom = sheet.isMobile() ? `${px}px` : '';
+  mapView.map.invalidateSize({ pan: false });
+}
+
+/** Ajuste la carte à la partie visible au-dessus du panneau. */
+function syncMapBottom() {
+  const target = sheet.isMobile() ? Math.round(sheet.coveredHeight()) : 0;
+  if (mapBottom == null || target <= mapBottom) {
+    // Le panneau descend : la carte s'agrandit tout de suite, dessous
+    setMapBottom(target);
+  } else {
+    // Le panneau monte : on attend la fin de l'animation pour ne pas laisser de vide
+    clearTimeout(mapBottomTimer);
+    mapBottomTimer = setTimeout(() => setMapBottom(target), 280);
+  }
+}
+
+window.addEventListener('resize', debounce(syncMapBottom, 150));
+syncMapBottom();
 
 initThemeControl(document.querySelectorAll('input[name="theme"]'));
 mapView.setTheme(effectiveTheme());
@@ -229,7 +262,7 @@ function renderPoints() {
         'div',
         { class: 'point-head' },
         h('label', { for: qId }, multi ? `Point ${i + 1} · Ville ou code postal` : 'Ville ou code postal'),
-        h('span', { class: 'point-active-label', hidden: !(multi && i === state.active) }, 'Clic sur la carte : ce point'),
+        h('span', { class: 'point-active-label', hidden: !(multi && i === state.active) }, 'Actif'),
         h(
           'button',
           {
@@ -335,6 +368,7 @@ function setPointCommune(i, commune) {
   p.el.input.value = pointLabel(p);
   closeDetails();
   runSearch({ fit: true });
+  ensureInsights();
 }
 
 function setPointCoords(i, lat, lon) {
@@ -345,6 +379,7 @@ function setPointCoords(i, lat, lon) {
   p.name = `Point sur la carte (${formatCoords(lat, lon)})`;
   if (p.el) p.el.input.value = p.name;
   runSearch({ fit: true });
+  ensureInsights();
 }
 
 function addPoint() {
@@ -640,6 +675,7 @@ function openDetails(code, from) {
   if (!commune) return;
   if (els.details.hidden) lastFocus = document.activeElement;
   state.selected = code;
+  ensureInsights();
   renderDetails(code);
   els.details.hidden = false;
   mapView.highlight(commune);
@@ -661,6 +697,7 @@ function openDetails(code, from) {
 
 function closeDetails() {
   if (els.details.hidden) return;
+  const code = state.selected;
   els.details.hidden = true;
   state.selected = null;
   mapView.highlight(null);
@@ -670,6 +707,11 @@ function closeDetails() {
   });
   if (sheet.isMobile() && sheetBeforeDetails) sheet.setState(sheetBeforeDetails);
   sheetBeforeDetails = null;
+  // La liste a pu être redessinée : on retrouve la ligne de la commune
+  if (lastFocus && !document.contains(lastFocus) && code) {
+    const view = state.view === 'favorites' ? els.favList : els.list;
+    lastFocus = view.querySelector(`li[data-code="${code}"] .result`);
+  }
   if (lastFocus && document.contains(lastFocus) && lastFocus !== document.body) {
     lastFocus.focus({ preventScroll: true });
   }
@@ -788,7 +830,8 @@ els.favExport.addEventListener('click', () => {
   flash(els.favFeedback, 'Favoris exportés');
 });
 
-els.favExportCsv.addEventListener('click', () => {
+els.favExportCsv.addEventListener('click', async () => {
+  await ensureInsights();
   const rows = favorites.map((f) => ({ fav: f, commune: data.byCode.get(f.code) })).filter((r) => r.commune);
   const base = communeColumns(data).map((col) => ({ header: col.header, value: (r) => col.value(r.commune) }));
   const extra = [
@@ -922,7 +965,8 @@ els.share.addEventListener('click', async () => {
   else flash(els.feedback, 'Impossible de copier le lien', true);
 });
 
-els.csv.addEventListener('click', () => {
+els.csv.addEventListener('click', async () => {
+  await ensureInsights();
   const pts = setPoints();
   const csv = resultsToCsv(results, data, { pointNames: pts.map((p) => p.name), extraColumns: insightColumns() });
   const name = csvFileName(pts.map((p) => ({ name: p.commune ? p.commune.nom : 'point', radius: p.radius })));
@@ -947,7 +991,8 @@ function buildPrintView() {
   );
 }
 
-els.print.addEventListener('click', () => {
+els.print.addEventListener('click', async () => {
+  await ensureInsights();
   buildPrintView();
   window.print();
 });
@@ -987,16 +1032,22 @@ function applyUrlState() {
   if (decoded.sort) state.sort = decoded.sort;
 }
 
+let firstStart = true;
+
 async function start() {
-  els.status.hidden = false;
-  els.status.className = 'data-status';
-  els.status.replaceChildren(h('span', {}, 'Chargement des communes…'));
+  // Le message de chargement est dans l'en-tête (pas de décalage de la page)
+  els.status.hidden = true;
   els.count.textContent = 'Chargement des communes…';
   els.fieldset.disabled = true;
   try {
+    // Les premières tuiles d'abord : elles forment le plus grand élément
+    // affiché, et les deux téléchargements se partageraient la connexion.
+    if (firstStart) await mapView.whenTilesLoaded(1500);
+    firstStart = false;
     data = await loadData();
   } catch (err) {
     console.warn(err);
+    els.status.hidden = false;
     els.status.className = 'data-status error';
     const retry = h('button', { type: 'button', class: 'btn btn-primary', onclick: start }, 'Réessayer');
     els.status.replaceChildren(h('span', {}, 'Impossible de charger les communes. Vérifiez votre connexion.'), retry);
@@ -1019,8 +1070,15 @@ async function start() {
   saveFavorites();
   const hadPoints = setPoints().length > 0;
   runSearch({ fit: hadPoints });
+  // Les données complémentaires (tendance, prix) sont chargées à la demande :
+  // ouverture d'une fiche, export CSV, impression.
+}
 
-  loadInsights().then((loaded) => {
+let insightsPromise = null;
+
+/** Charge (une seule fois) tendance démographique et prix DVF. */
+function ensureInsights() {
+  insightsPromise ??= loadInsights().then((loaded) => {
     insights = loaded;
     if (insights.prices || insights.trend) {
       const parts = [];
@@ -1039,6 +1097,7 @@ async function start() {
     }
     if (state.selected && !els.details.hidden) renderDetails(state.selected);
   });
+  return insightsPromise;
 }
 
 els.addPoint.addEventListener('click', addPoint);
