@@ -9,6 +9,7 @@ import { amenityList, amenitySummary } from '../lib/amenities.js';
 import { BUDGET_STATUS_LABELS, formatEuros, PROPERTY_TYPES, priceReliability } from '../lib/budget.js';
 import { STATUSES } from '../lib/favorites.js';
 import { distanceKm } from '../lib/geo.js';
+import { deName } from '../lib/summary.js';
 
 const NA = 'Non disponible';
 
@@ -430,10 +431,19 @@ export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove,
 }
 
 /** Fiche client affichée en tête d'un dossier */
+/** « 25 km autour de Lille » */
+export function briefZoneText(brief) {
+  if (!brief?.zoneCode) return '';
+  const r = brief.zoneRayon ? `${String(brief.zoneRayon).replace('.', ',')}${NBSP}km` : 'rayon non précisé';
+  // « autour de Lille », « autour d’Arras », « autour du Havre »
+  return `${r} autour ${deName(brief.zoneNom || brief.zoneCode)}`;
+}
+
 export function briefCard(brief) {
-  if (!brief) return h('p', { class: 'hint' }, 'Pas encore de fiche client : budget, type de bien, lieux importants, critères…');
+  if (!brief) return h('p', { class: 'hint' }, 'Pas encore de fiche client : zone, budget, type de bien, lieux importants, critères…');
   const rows = [
     ['Client', brief.client],
+    ['Zone', briefZoneText(brief)],
     ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
     ['Bien', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m²` : ''].filter(Boolean).join(', ')],
     ['Lieux importants', brief.travail],
@@ -643,7 +653,9 @@ export function clientReportContent({ appName, folder, towns, excluded, points, 
       const t = travel?.[k];
       facts.push([
         points.length > 1 ? `Depuis ${p.name}` : 'Distance',
-        `${formatKm(km)} à vol d’oiseau${t ? ` · ${Math.round(t.minutes)}${NBSP}min en voiture (${formatNumber(t.km, 0)}${NBSP}km)` : ''}`,
+        km < 0.5
+          ? 'Sur place'
+          : `${formatKm(km)} à vol d’oiseau${t ? ` · ${Math.round(t.minutes)}${NBSP}min en voiture (${formatNumber(t.km, 0)}${NBSP}km)` : ''}`,
       ]);
     });
     if (insights.trend) facts.push(['Tendance', trendText(insights.trend.get(commune.code))]);
@@ -667,6 +679,7 @@ export function clientReportContent({ appName, folder, towns, excluded, points, 
   const briefRows = brief
     ? [
         ['Client', brief.client],
+        ['Zone de recherche', briefZoneText(brief)],
         ['Budget', brief.budget ? `${formatNumber(brief.budget)}${NBSP}€` : ''],
         ['Bien recherché', [brief.type ? PROPERTY_TYPES[brief.type] : '', brief.surface ? `${brief.surface}${NBSP}m² minimum` : ''].filter(Boolean).join(', ')],
         ['Lieux importants', brief.travail],

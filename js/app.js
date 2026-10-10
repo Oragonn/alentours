@@ -47,7 +47,7 @@ import { priceInfo, trendText } from './lib/insights.js';
 import { adminFacets, filterByAdmin, searchArea, validatePopulation } from './lib/search.js';
 import { sortResults } from './lib/sort.js';
 import { suggest } from './lib/suggest.js';
-import { searchSummary } from './lib/summary.js';
+import { deName, searchSummary } from './lib/summary.js';
 import { formatCoords, formatNumber, parseDecimalInput, parseIntegerInput, resultsCountLabel } from './lib/text.js';
 import { decodeSearch, encodeSearch } from './lib/url.js';
 import { FIREBASE_CONFIG } from './firebase-config.js';
@@ -192,6 +192,9 @@ const els = {
   briefEdit: $('brief-edit'),
   briefForm: $('brief-form'),
   briefClient: $('brief-client'),
+  briefZone: $('brief-zone'),
+  briefZoneList: $('brief-zone-list'),
+  briefRayon: $('brief-rayon'),
   briefBudget: $('brief-budget'),
   briefSurface: $('brief-surface'),
   briefType: $('brief-type'),
@@ -1242,6 +1245,11 @@ function openBriefForm() {
   if (!folder) return;
   const b = folder.fiche ?? {};
   els.briefClient.value = b.client ?? '';
+  const current = setPoints().find((p) => p.commune);
+  briefCity = b.zoneCode ? data.byCode.get(b.zoneCode) ?? null : current?.commune ?? null;
+  els.briefZone.value = briefCity ? communeLabel(briefCity, data.departements) : '';
+  const rayon = b.zoneCode ? b.zoneRayon : current?.radius;
+  els.briefRayon.value = rayon ? String(rayon).replace('.', ',') : '';
   els.briefBudget.value = b.budget ? formatNumber(b.budget) : '';
   els.briefSurface.value = b.surface ?? '';
   els.briefType.value = b.type ?? '';
@@ -1254,6 +1262,25 @@ function openBriefForm() {
   els.briefClient.focus();
 }
 
+// Ville choisie dans le formulaire de la fiche
+let briefCity = null;
+attachAutocomplete(els.briefZone, els.briefZoneList, {
+  getData: () => data,
+  suggest: (q) => suggest(data, q),
+  onSelect: (commune) => {
+    briefCity = commune;
+    els.briefZone.value = communeLabel(commune, data.departements);
+    els.briefRayon.focus();
+  },
+});
+els.briefZone.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement === els.briefZone) return;
+    if (!els.briefZone.value.trim()) briefCity = null;
+    else if (briefCity) els.briefZone.value = communeLabel(briefCity, data.departements);
+  }, 150);
+});
+
 function closeBriefForm() {
   state.editingBrief = false;
   renderFolders();
@@ -1264,8 +1291,12 @@ els.briefEdit.addEventListener('click', openBriefForm);
 els.briefCancel.addEventListener('click', closeBriefForm);
 els.briefForm.addEventListener('submit', (e) => {
   e.preventDefault();
+  const rayon = parseDecimalInput(els.briefRayon.value);
   folders = setFolderBrief(folders, state.openFolder, {
     client: els.briefClient.value,
+    zoneCode: els.briefZone.value.trim() && briefCity ? briefCity.code : null,
+    zoneNom: briefCity?.nom ?? '',
+    zoneRayon: rayon != null ? Math.min(RADIUS.max, Math.max(RADIUS.min, rayon)) : RADIUS.default,
     budget: parseIntegerInput(els.briefBudget.value),
     surface: parseIntegerInput(els.briefSurface.value),
     type: els.briefType.value || null,
@@ -1278,16 +1309,30 @@ els.briefForm.addEventListener('submit', (e) => {
 
 els.briefApply.addEventListener('click', () => {
   const b = findFolder(folders, state.openFolder)?.fiche;
-  if (!b?.budget || !b?.surface) {
-    flash(els.folderFeedback, 'Indiquez le budget et la surface dans la fiche client.', true);
+  const city = b?.zoneCode ? data.byCode.get(b.zoneCode) : null;
+  const hasBudget = Boolean(b?.budget && b?.surface);
+  if (!city && !hasBudget) {
+    flash(els.folderFeedback, 'Indiquez une ville de recherche ou un budget avec la surface dans la fiche client.', true);
     return;
   }
-  setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
-  els.budgetBox.open = true;
+  if (city) {
+    // La zone de la fiche remplace les points de départ de la recherche
+    const p = newPoint(b.zoneRayon ?? RADIUS.default);
+    Object.assign(p, { commune: city, lat: city.lat, lon: city.lon, name: city.nom });
+    state.points = [p];
+    state.active = 0;
+    renderPoints();
+  }
+  if (hasBudget) {
+    setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
+    els.budgetBox.open = true;
+  }
   setView('results');
-  runSearch();
+  runSearch({ fit: Boolean(city) });
+  ensureInsights();
   if (sheet.isMobile()) sheet.setState('half');
-  flash(els.feedback, `Budget de ${b.client || 'la fiche'} appliqué`);
+  const what = [city ? briefZoneLabel(b) : '', hasBudget ? 'budget' : ''].filter(Boolean).join(' et ');
+  flash(els.feedback, `Fiche de ${b.client || 'ce dossier'} appliquée : ${what}`);
 });
 
 // Itinéraire de visite (Google Maps)
@@ -1764,8 +1809,28 @@ function reportTowns(folder) {
 }
 
 /** Rapport client (impression) à partir des données déjà connues. */
+/** Points du rapport : zone de la fiche client, sinon la recherche en cours. */
+function reportPoints(folder) {
+  const b = folder.fiche;
+  const city = b?.zoneCode ? data.byCode.get(b.zoneCode) : null;
+  if (city) return [{ commune: city, lat: city.lat, lon: city.lon, radius: b.zoneRayon ?? RADIUS.default, name: city.nom }];
+  return setPoints();
+}
+
+/** « Communes à moins de 25 km de Lille — 127 communes dans la zone » */
+function reportSummary(folder, pts) {
+  if (!pts.length) return null;
+  if (!folder.fiche?.zoneCode) return summaryText();
+  const count = searchArea(data.communes, { points: pts.map(({ lat, lon, radius }) => ({ lat, lon, radius })) }).length;
+  return searchSummary({ points: pts.map((p) => ({ name: p.name, radius: p.radius })), count }).replace(/résultats?$/, (m) =>
+    m === 'résultat' ? 'commune dans la zone' : 'communes dans la zone'
+  );
+}
+
+const briefZoneLabel = (b) => `${String(b.zoneRayon ?? RADIUS.default).replace('.', ',')} km autour ${deName(b.zoneNom)}`;
+
 function clientReport(folder) {
-  const pts = setPoints();
+  const pts = reportPoints(folder);
   const towns = reportTowns(folder).map((fav) => {
     const commune = data.byCode.get(fav.code);
     return {
@@ -1801,7 +1866,7 @@ function clientReport(folder) {
     points: pts.map((p) => ({ name: pointShortName(p), lat: p.lat, lon: p.lon, radius: p.radius })),
     data,
     insights,
-    summary: pts.length ? summaryText() : null,
+    summary: reportSummary(folder, pts),
     comparison,
   });
 }
@@ -1820,7 +1885,7 @@ els.folderPrint.addEventListener('click', async () => {
   els.folderPrint.disabled = true;
   flash(els.folderFeedback, 'Préparation du rapport (temps de trajet)…');
   await ensureInsights();
-  await travelTable(setPoints(), reportTowns(folder).map((c) => data.byCode.get(c.code)));
+  await travelTable(reportPoints(folder), reportTowns(folder).map((c) => data.byCode.get(c.code)));
   els.folderPrint.disabled = false;
   els.folderFeedback.textContent = '';
   buildPrintView();

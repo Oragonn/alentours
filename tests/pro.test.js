@@ -106,3 +106,13 @@ test('tri par prix : inconnus en dernier', async () => {
   assert.deepEqual(sortResults(list, 'prix', 'desc', opts).map((x) => x.commune.nom), ['A', 'C', 'B']);
   assert.deepEqual(parseSort('prix-asc'), { key: 'prix', dir: 'asc' });
 });
+
+test('fiche client : zone de recherche (ville + rayon)', async () => {
+  const { cleanBrief } = await import('../js/lib/folders.js');
+  const b = cleanBrief({ client: 'Martin', zoneCode: '59350', zoneNom: 'Lille', zoneRayon: 25 });
+  assert.deepEqual([b.zoneCode, b.zoneNom, b.zoneRayon], ['59350', 'Lille', 25]);
+  assert.equal(cleanBrief({ zoneCode: 'abc', zoneNom: 'X', zoneRayon: 10 }), null, 'code invalide : rien à garder');
+  assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 500 }).zoneRayon, null);
+  assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 12.34 }).zoneRayon, 12.3);
+  assert.equal(cleanBrief({ client: 'A', zoneNom: 'Lille' }).zoneNom, '', 'nom sans code ignoré');
+});

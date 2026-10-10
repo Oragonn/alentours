@@ -22,15 +22,21 @@ import {
 export const MAX_FOLDERS = 50;
 
 // Fiche du client (champs facultatifs)
-export const BRIEF_FIELDS = ['client', 'budget', 'type', 'surface', 'travail', 'criteres'];
+export const BRIEF_FIELDS = ['client', 'zoneCode', 'zoneNom', 'zoneRayon', 'budget', 'type', 'surface', 'travail', 'criteres'];
 
 /** Nettoie la fiche client d'un dossier. */
 export function cleanBrief(b) {
   if (!b || typeof b !== 'object') return null;
   const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
   const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+  // Zone de recherche : commune (code INSEE) et rayon en km (1 à 100)
+  const zoneCode = typeof b.zoneCode === 'string' && /^[0-9][0-9AB][0-9]{3}$/.test(b.zoneCode) ? b.zoneCode : null;
+  const rayon = Number(b.zoneRayon);
   const brief = {
     client: text(b.client, 100),
+    zoneCode,
+    zoneNom: zoneCode ? text(b.zoneNom, 100) : '',
+    zoneRayon: zoneCode && Number.isFinite(rayon) && rayon >= 1 && rayon <= 100 ? Math.round(rayon * 10) / 10 : null,
     budget: num(b.budget),
     type: b.type === 'appartement' ? 'appartement' : b.type === 'maison' ? 'maison' : null,
     surface: num(b.surface),

@@ -118,6 +118,7 @@ export function comparisonTable(communes, { data, trendSeries, prices, pricesMet
       `Trajet en voiture depuis ${p.name}`,
       communes.map((c) => {
         const t = travel(k, c.code);
+        if (t && t.km < 0.5) return cell('Sur place', 0);
         return t ? cell(`${Math.round(t.minutes)}${NBSP}min (${formatNumber(t.km, 0)}${NBSP}km)`, t.minutes) : cell(NA);
       }),
       'min'
