@@ -83,21 +83,23 @@ export function folderButton(count, name, onClick) {
   );
 }
 
+// Libellés courts pour la ligne de résultat
+const ROW_BUDGET_LABELS = { ok: 'dans le budget', limite: 'limite (+10 %)', trop: 'au-dessus du budget' };
+
 /** Ligne de la liste des résultats */
 export function resultRow(result, { pointNames, selected, isFav, folderCount = 0, budget = null, onOpen, onToggleFav, onFolders }) {
   const c = result.commune;
-  const metaText = `${populationText(c.population)} · ${distanceText(result, pointNames)}`;
-  const meta = budget
-    ? [
-        metaText,
-        ' · ',
-        h(
-          'span',
-          { class: `budget-chip budget-${budget.status}`, title: BUDGET_STATUS_LABELS[budget.status] },
-          budget.status === 'inconnu' ? 'prix ?' : `≈ ${formatEuros(budget.estimate)}`
-        ),
-      ]
-    : metaText;
+  const meta = `${populationText(c.population)} · ${distanceText(result, pointNames)}`;
+  // Estimation du budget sur sa propre ligne (jamais coupée)
+  const budgetLine = budget
+    ? h(
+        'span',
+        { class: `r-budget budget-chip budget-${budget.status}` },
+        budget.status === 'inconnu'
+          ? 'Prix inconnu'
+          : `≈ ${formatEuros(budget.estimate)} · ${ROW_BUDGET_LABELS[budget.status]}`
+      )
+    : null;
   return h(
     'li',
     { class: selected ? 'selected' : null, dataset: { code: c.code } },
@@ -111,6 +113,7 @@ export function resultRow(result, { pointNames, selected, isFav, folderCount = 0
       },
       h('span', { class: 'r-name' }, c.nom, ' ', h('span', { class: 'r-dep' }, `(${c.dep})`)),
       h('span', { class: 'r-meta' }, meta),
+      budgetLine,
       badge(c.population)
     ),
     folderButton(folderCount, c.nom, () => onFolders(c.code)),
