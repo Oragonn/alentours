@@ -433,7 +433,18 @@ function runSearch({ fit = false } = {}) {
   renderCount(points);
   renderList();
   mapView.render({
-    points: state.points.map((p) => (isSet(p) ? { lat: p.lat, lon: p.lon, radius: p.radius } : null)),
+    points: state.points.map((p) =>
+      isSet(p)
+        ? {
+            lat: p.lat,
+            lon: p.lon,
+            radius: p.radius,
+            // La commune de départ a-t-elle un marqueur sur la carte ?
+            isCommune: Boolean(p.commune && resultIndex.has(p.commune.code)),
+            population: p.commune?.population ?? null,
+          }
+        : null
+    ),
     colors: state.points.map((_, i) => pointColor(i)),
     names: state.points.map((p) => p.name),
     results,

@@ -42,7 +42,8 @@ const MOBILE_QUERY = window.matchMedia('(max-width: 767.98px)');
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-function pinIcon(color, label) {
+/** Épingle du point de départ ; `lift` la remonte (en px) pour pointer sur un marqueur sans le cacher. */
+function pinIcon(color, lift = 0) {
   const svg = `<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true">
     <path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 39 15 39s14-13.7 14-24.1C29 7.2 22.7 1 15 1z"
       fill="${color}" stroke="#fff" stroke-width="2"/>
@@ -52,8 +53,8 @@ function pinIcon(color, label) {
     className: 'start-marker',
     html: svg,
     iconSize: [30, 40],
-    iconAnchor: [15, 39],
-    tooltipAnchor: [0, -36],
+    iconAnchor: [15, 39 + lift],
+    tooltipAnchor: [0, -36 - lift],
   });
 }
 
@@ -256,15 +257,16 @@ export class MapView {
         fillOpacity: 0.07,
         interactive: false,
       }).addTo(this.zonesLayer);
-      const marker = L.marker([p.lat, p.lon], {
-        icon: pinIcon(color),
+      // Départ depuis une commune : l'épingle pointe juste au-dessus de son
+      // marqueur, qui reste visible et cliquable à tous les niveaux de zoom.
+      const lift = p.isCommune ? markerRadius(p.population, MARKER) + 2 : 0;
+      L.marker([p.lat, p.lon], {
+        icon: pinIcon(color, lift),
         keyboard: false,
-        interactive: true,
+        interactive: false,
         zIndexOffset: 1000,
-        title: this.names?.[i] ?? 'Point de départ',
         alt: this.names?.[i] ?? 'Point de départ',
       }).addTo(this.startLayer);
-      marker.on('click', (e) => L.DomEvent.stopPropagation(e));
       if (this.rings) this.drawRings(p, color);
     });
   }
