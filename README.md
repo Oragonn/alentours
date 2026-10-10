@@ -1,7 +1,7 @@
 # Alentours
 
 Trouvez toutes les communes françaises dans un rayon donné (1 à 100 km) autour
-d'une ville, d'un code postal ou d'un point cliqué sur la carte, avec filtres
+d'une ville ou d'un code postal, avec filtres
 de population, de département et de région.
 
 Site statique : HTML, CSS et JavaScript (modules ES), sans framework, sans

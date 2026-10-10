@@ -62,7 +62,7 @@ function pinIcon(color, lift = 0) {
 export class MapView {
   /**
    * @param {HTMLElement} el
-   * @param {object} handlers { onMapClick(lat, lon), onCommuneClick(code), getPadding() }
+   * @param {object} handlers { onMapClick(), onCommuneClick(code), getPadding() }
    */
   constructor(el, handlers) {
     this.handlers = handlers;
@@ -223,8 +223,9 @@ export class MapView {
   // ---- Clic sur la carte -------------------------------------------------
 
   setupClick() {
-    // Un simple clic/toucher place le point ; un double-toucher ou un pincement
-    // zoome sans placer de point : on attend un court instant avant d'agir.
+    // Clic sur le fond de carte (pas sur un point) ; un double-clic, un
+    // double-toucher ou un pincement zoome sans être compté comme un clic :
+    // on attend un court instant avant d'agir.
     let timer = null;
     const cancel = () => {
       clearTimeout(timer);

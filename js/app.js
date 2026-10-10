@@ -266,12 +266,11 @@ function renderPoints() {
 
     const block = h(
       'div',
-      { class: `point${multi && i === state.active ? ' active' : ''}`, style: `--point-color: ${pointColor(i)}` },
+      { class: 'point', style: `--point-color: ${pointColor(i)}` },
       h(
         'div',
         { class: 'point-head' },
         h('label', { for: qId }, multi ? `Point ${i + 1} · Ville ou code postal` : 'Ville ou code postal'),
-        h('span', { class: 'point-active-label', hidden: !(multi && i === state.active) }, 'Actif'),
         h(
           'button',
           {
@@ -347,7 +346,7 @@ function renderPoints() {
   els.addPoint.disabled = state.points.length >= MAX_STARTING_POINTS;
   els.pointHint.hidden = !multi;
   els.pointHint.textContent = multi
-    ? 'Les communes affichées sont dans tous les cercles. Un clic sur la carte place le point encadré.'
+    ? 'Les communes affichées sont dans tous les cercles.'
     : '';
 }
 
@@ -358,14 +357,7 @@ function pointLabel(p) {
 }
 
 function setActivePoint(i) {
-  if (state.active === i) return;
   state.active = i;
-  const multi = state.points.length > 1;
-  state.points.forEach((p, j) => {
-    p.el?.block.classList.toggle('active', multi && j === i);
-    const label = p.el?.block.querySelector('.point-active-label');
-    if (label) label.hidden = !(multi && j === i);
-  });
 }
 
 function setPointCommune(i, commune) {
@@ -376,17 +368,6 @@ function setPointCommune(i, commune) {
   p.name = commune.nom;
   p.el.input.value = pointLabel(p);
   closeDetails();
-  runSearch({ fit: true });
-  ensureInsights();
-}
-
-function setPointCoords(i, lat, lon) {
-  const p = state.points[i];
-  p.commune = null;
-  p.lat = lat;
-  p.lon = lon;
-  p.name = `Point sur la carte (${formatCoords(lat, lon)})`;
-  if (p.el) p.el.input.value = p.name;
   runSearch({ fit: true });
   ensureInsights();
 }
@@ -410,14 +391,9 @@ function removePoint(i) {
   (state.points[Math.min(i, state.points.length - 1)].el.input).focus();
 }
 
-function handleMapClick(lat, lon) {
-  if (!data) return;
-  // Avec une fiche ouverte, un clic sur la carte la ferme simplement
-  if (!els.details.hidden) {
-    closeDetails();
-    return;
-  }
-  setPointCoords(state.active, lat, lon);
+/** Un clic sur le fond de carte ferme la fiche ouverte (il ne change pas la recherche). */
+function handleMapClick() {
+  closeDetails();
 }
 
 // ---- Recherche -----------------------------------------------------------
@@ -475,7 +451,7 @@ function renderCount(points) {
   if (!points.length) {
     els.count.textContent = 'Choisissez un point de départ';
     els.hint.hidden = false;
-    els.hint.textContent = 'Choisissez une ville, un code postal ou cliquez sur la carte';
+    els.hint.textContent = 'Choisissez une ville ou un code postal';
     return;
   }
   els.count.textContent = resultsCountLabel(results.length);

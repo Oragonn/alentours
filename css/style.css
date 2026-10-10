@@ -604,12 +604,6 @@ input[aria-invalid="true"] {
   background: var(--surface);
 }
 
-.points.multi .point.active {
-  border-color: var(--point-color);
-  border-left-width: 5px;
-  box-shadow: 0 0 0 1px var(--point-color);
-}
-
 .point-head {
   display: flex;
   align-items: center;
@@ -622,16 +616,8 @@ input[aria-invalid="true"] {
   margin: -10px -8px -10px 0;
 }
 
-.points:not(.multi) .point-remove,
-.points:not(.multi) .point-active-label {
+.points:not(.multi) .point-remove {
   display: none;
-}
-
-.point-active-label {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  font-weight: 500;
-  margin-left: auto;
 }
 
 .combo {
