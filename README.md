@@ -96,8 +96,9 @@ Facultatif : dans Google Cloud Console → API et services → Identifiants,
 limiter la clé « Browser key » aux sites `oragonn.github.io/*` et
 `localhost:*`.
 
-Données enregistrées : un document `favoris/{uid}` par compte (code INSEE,
-nom, note, dates). Bouton « Supprimer mes favoris enregistrés en ligne »
+Données enregistrées : un document `favoris/{uid}` par compte : favoris (code
+INSEE, nom, dates) et dossiers (nom, communes, notes). Après une mise à jour
+de `firestore.rules`, recollez-le dans la console et publiez. Bouton « Supprimer mes favoris enregistrés en ligne »
 dans l'onglet Favoris. Une suppression de favori se propage aux autres
 appareils (une marque invisible est gardée 180 jours).
 
