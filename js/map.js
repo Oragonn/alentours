@@ -94,7 +94,7 @@ export class MapView {
       center: [MAP_START.lat, MAP_START.lon],
       zoom: MAP_START.zoom,
       zoomControl: false,
-      preferCanvas: true,
+      preferCanvas: !still,
       worldCopyJump: true,
       zoomAnimation: animate,
       fadeAnimation: animate,
@@ -125,8 +125,10 @@ export class MapView {
     map.createPane('labelsPane').style.zIndex = 550;
     map.getPane('highlightPane').style.pointerEvents = 'none';
 
-    this.renderer = L.canvas({ padding: 0.5, tolerance: 5 });
-    this.zonesRenderer = L.canvas({ pane: 'zonesPane', padding: 0.5 });
+    // Carte figée (rapport) : SVG, dessiné tout de suite et net à l'impression ;
+    // un canevas ne se dessine qu'à l'image suivante, parfois après l'impression
+    this.renderer = still ? L.svg({ padding: 0.5 }) : L.canvas({ padding: 0.5, tolerance: 5 });
+    this.zonesRenderer = still ? L.svg({ pane: 'zonesPane', padding: 0.5 }) : L.canvas({ pane: 'zonesPane', padding: 0.5 });
     this.highlightRenderer = L.svg({ pane: 'highlightPane' });
 
     this.zonesLayer = L.layerGroup().addTo(map);
