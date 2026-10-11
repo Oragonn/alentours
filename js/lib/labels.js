@@ -9,16 +9,18 @@ export function labelMinPopulation(zoom, steps) {
 }
 
 /**
- * Choisit les noms à afficher sans chevauchement. Les communes les plus
- * peuplées passent en premier.
+ * Choisit les noms à afficher sans chevauchement. Les éléments `priority`
+ * passent en premier, puis les communes les plus peuplées.
  *
- * items : [{ code, name, x, y, r, population }] (x, y en pixels à l'écran ;
- *         r = rayon du point). Le nom est placé à droite du point.
+ * items : [{ code, name, x, y, r, population, priority? }] (x, y en pixels à
+ *         l'écran ; r = rayon du point). Le nom est placé à droite du point.
  * obstacles : rectangles déjà occupés (étiquettes des cercles de distance…).
  * Renvoie les éléments retenus, avec leur rectangle { left, top, width, height }.
  */
 export function placeLabels(items, { width, height, maxCount = 250, charWidth = 6.8, lineHeight = 16, gap = 3, obstacles = [] }) {
-  const sorted = [...items].sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
+  const sorted = [...items].sort(
+    (a, b) => Number(b.priority ?? false) - Number(a.priority ?? false) || (b.population ?? -1) - (a.population ?? -1)
+  );
   const placed = [];
   const blocked = obstacles.map((box) => ({ box }));
   for (const it of sorted) {

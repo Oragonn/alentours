@@ -1997,8 +1997,84 @@ function clientReport(folder) {
     insights,
     summary: reportSummary(folder, pts),
     comparison,
-    tiles: mapView.baseTiles(),
+    map: pts.length || towns.length ? reportMap(folder, pts).el : null,
   });
+}
+
+// ---- Plan du rapport client ---------------------------------------------------
+
+// Même carte que l'application (fond, thème, points colorés, noms, épingle),
+// figée, avec les communes du dossier numérotées comme dans le rapport. Gardée
+// tant que rien ne change : l'impression (Ctrl+P compris) la réutilise.
+const REPORT_MAP = { width: 700, height: 400 };
+let reportMapCache = null;
+
+/** Communes de la zone du rapport : celle de la fiche, sinon la recherche en cours. */
+function reportZoneResults(folder, pts) {
+  const b = folder.fiche;
+  if (!briefZonePoint(b)) return results;
+  return searchArea(data.communes, {
+    points: pts.map(({ lat, lon, radius }) => ({ lat, lon, radius })),
+    popMin: b.popMin ?? null,
+    popMax: b.popMax ?? null,
+  });
+}
+
+function reportMap(folder, pts) {
+  const towns = reportTowns(folder).map((c) => data.byCode.get(c.code));
+  const zone = reportZoneResults(folder, pts);
+  const hasBudget = Boolean(insights.prices && ((folder.fiche?.budget && folder.fiche?.surface) || budgetIsSet(state.budget)));
+  const key = JSON.stringify([
+    pts.map((p) => [p.lat, p.lon, p.radius]),
+    towns.map((c) => c.code),
+    zone.length,
+    hasBudget,
+    effectiveTheme(),
+    mapView.style,
+    mapView.useSatelliteFallback,
+  ]);
+  if (reportMapCache?.key === key) return reportMapCache;
+  if (reportMapCache) {
+    reportMapCache.view.map.remove();
+    reportMapCache.el.remove();
+  }
+  const el = h('div', { class: 'report-map report-map-offscreen' });
+  el.style.width = `${REPORT_MAP.width}px`;
+  el.style.height = `${REPORT_MAP.height}px`;
+  // Couleurs des noms du thème affiché (sinon l'impression repasse en clair)
+  const root = getComputedStyle(document.documentElement);
+  for (const name of ['--text', '--bg', '--surface-2']) el.style.setProperty(name, root.getPropertyValue(name));
+  // Leaflet mesure son conteneur : rendu hors de l'écran, puis placé dans le rapport
+  document.body.append(el);
+  const view = new MapView(el, {}, { still: true, theme: effectiveTheme(), style: mapView.style });
+  if (mapView.useSatelliteFallback) {
+    view.useSatelliteFallback = true;
+    view.updateBaseLayer();
+  }
+  view.fitArea(pts, towns);
+  const inZone = new Set(zone.map((r) => r.commune.code));
+  view.render({
+    points: pts.map((p) => ({
+      lat: p.lat,
+      lon: p.lon,
+      radius: p.radius,
+      isCommune: Boolean(p.commune && inZone.has(p.commune.code)),
+      population: p.commune?.population ?? null,
+    })),
+    colors: pts.map((_, i) => pointColor(i)),
+    results: [...zone, ...towns.filter((c) => !inZone.has(c.code)).map((commune) => ({ commune }))],
+    names: pts.map(pointShortName),
+    favorites: new Set(),
+    colorOf: hasBudget
+      ? (c) => {
+          const check = reportBudget(folder, c);
+          return check ? `budget-${check.status}` : null;
+        }
+      : null,
+  });
+  view.showNumbered(towns);
+  reportMapCache = { key, el, view, ready: view.whenTilesLoaded(8000) };
+  return reportMapCache;
 }
 
 /** Budget de la fiche client (sinon celui de la recherche). */
@@ -2018,6 +2094,7 @@ els.folderPrint.addEventListener('click', async () => {
   await travelTable(reportPoints(folder), reportTowns(folder).map((c) => data.byCode.get(c.code)));
   buildPrintView();
   // Fond du plan : on attend les tuiles (8 s au plus) pour ne pas imprimer un plan vide
+  await reportMapCache?.ready;
   await imagesLoaded(els.printView, 8000);
   els.folderPrint.disabled = false;
   els.folderFeedback.textContent = '';

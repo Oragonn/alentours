@@ -183,3 +183,13 @@ test('trajet max : saisie libre en minutes', async () => {
   assert.equal(formatMinutes(60), '1 h');
   assert.equal(formatMinutes(95), '1 h 35');
 });
+
+test('noms sur la carte : les communes prioritaires passent en premier', async () => {
+  const { placeLabels } = await import('../js/lib/labels.js');
+  const items = [
+    { name: 'Reims', x: 100, y: 100, r: 8, population: 180000 },
+    { name: 'Bezannes', x: 100, y: 102, r: 4, population: 5000, priority: true },
+  ];
+  const placed = placeLabels(items, { width: 500, height: 300 });
+  assert.deepEqual(placed.map((p) => p.name), ['Bezannes'], 'le nom prioritaire prend la place');
+});

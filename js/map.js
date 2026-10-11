@@ -41,6 +41,9 @@ const TILES = {
 
 const MOBILE_QUERY = window.matchMedia('(max-width: 767.98px)');
 
+// Rayon (px) des numéros du plan du rapport : le nom se place à côté
+const NUMBER_RADIUS = 11;
+
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 /** Épingle du point de départ ; `lift` la remonte (en px) pour pointer sur un marqueur sans le cacher. */
@@ -63,11 +66,15 @@ export class MapView {
   /**
    * @param {HTMLElement} el
    * @param {object} handlers { onMapClick(), onCommuneClick(code), getPadding() }
+   * @param {object} options { still, theme, style } : `still` = carte figée
+   *   (rapport imprimé) : ni contrôles ni interactions, thème et fond imposés.
    */
-  constructor(el, handlers) {
+  constructor(el, handlers, { still = false, theme = 'light', style = null } = {}) {
     this.handlers = handlers;
-    this.theme = 'light';
-    this.style = load(STORAGE_KEYS.mapStyle) === 'satellite' ? 'satellite' : 'plan';
+    this.still = still;
+    this.theme = theme;
+    this.style = style ?? (load(STORAGE_KEYS.mapStyle) === 'satellite' ? 'satellite' : 'plan');
+    this.priorityCodes = null;
     this.markers = new Map();
     this.results = [];
     this.points = [];
@@ -75,21 +82,35 @@ export class MapView {
     this.rings = false;
     this.useSatelliteFallback = false;
 
+    const animate = !still && !reducedMotion();
     const map = (this.map = L.map(el, {
       center: [MAP_START.lat, MAP_START.lon],
       zoom: MAP_START.zoom,
       zoomControl: false,
       preferCanvas: true,
       worldCopyJump: true,
-      zoomAnimation: !reducedMotion(),
-      fadeAnimation: !reducedMotion(),
-      markerZoomAnimation: !reducedMotion(),
+      zoomAnimation: animate,
+      fadeAnimation: animate,
+      markerZoomAnimation: animate,
+      ...(still
+        ? {
+            dragging: false,
+            touchZoom: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false,
+            boxZoom: false,
+            keyboard: false,
+            trackResize: false,
+            // Cadrage au plus juste de la zone (tuiles à peine agrandies)
+            zoomSnap: 0.25,
+          }
+        : {}),
     }));
     // Cadre la France métropolitaine (sans animation) avant de charger les tuiles
     const startZoom = Math.min(MAP_START.zoom, map.getBoundsZoom(FRANCE_BOUNDS, false, L.point(8, 8)));
     map.setView([MAP_START.lat, MAP_START.lon], startZoom, { animate: false });
     map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
-    L.control.zoom({ position: 'topleft', zoomInTitle: 'Zoom avant', zoomOutTitle: 'Zoom arrière' }).addTo(map);
+    if (!still) L.control.zoom({ position: 'topleft', zoomInTitle: 'Zoom avant', zoomOutTitle: 'Zoom arrière' }).addTo(map);
 
     map.createPane('zonesPane').style.zIndex = 350;
     map.createPane('highlightPane').style.zIndex = 450;
@@ -109,17 +130,22 @@ export class MapView {
     this.labelsLayer = L.layerGroup().addTo(map);
     this.pins = [];
     this.favoritesLayer = L.layerGroup();
+    this.numbersLayer = L.layerGroup().addTo(map);
 
     this.tooltip = L.tooltip({ className: 'commune-tooltip', direction: 'top', opacity: 1 });
 
-    this.addStyleControl();
-    this.setupClick();
     // Les points grossissent en zoomant ; les noms suivent la vue
     map.on('zoomend', () => {
       this.restyleMarkers();
       this.updatePins();
     });
     map.on('moveend', () => this.updateLabels());
+    if (still) {
+      this.updateBaseLayer();
+      return;
+    }
+    this.addStyleControl();
+    this.setupClick();
     this.placeAttribution();
     MOBILE_QUERY.addEventListener('change', () => this.placeAttribution());
   }
@@ -181,17 +207,6 @@ export class MapView {
     for (const btn of this.styleControlEl?.querySelectorAll('button') ?? []) {
       btn.setAttribute('aria-pressed', String(btn.dataset.style === this.style));
     }
-  }
-
-  /**
-   * Fond de carte affiché (Plan clair ou sombre, Satellite) : modèle d'URL des
-   * tuiles, classe CSS (filtre du mode sombre) et attribution en texte.
-   */
-  baseTiles() {
-    const key = this.baseKey ?? 'planLight';
-    const { url, options } = TILES[key];
-    const credit = key.startsWith('plan') ? 'OpenStreetMap' : key === 'satellite' ? 'IGN' : 'Esri, Maxar';
-    return { url, className: options.className ?? '', dark: key === 'planDark', credit: `© ${credit}` };
   }
 
   /** Promesse résolue quand les tuiles visibles sont chargées (ou après `timeout` ms). */
@@ -433,16 +448,20 @@ export class MapView {
     const size = this.map.getSize();
     const candidates = [];
     for (const { commune } of this.results) {
-      if ((commune.population ?? 0) < minPopulation) continue;
+      // Communes numérotées (rapport) : toujours nommées, à côté de leur numéro
+      const priority = this.priorityCodes?.has(commune.code) ?? false;
+      if (!priority && (commune.population ?? 0) < minPopulation) continue;
       const pt = this.map.latLngToContainerPoint([commune.lat, commune.lon]);
       if (pt.x < -200 || pt.y < -20 || pt.x > size.x + 20 || pt.y > size.y + 20) continue;
+      const r = markerRadius(commune.population, MARKER, zoom);
       candidates.push({
         commune,
         name: commune.nom,
         x: pt.x,
         y: pt.y,
-        r: markerRadius(commune.population, MARKER, zoom),
+        r: priority ? Math.max(r, NUMBER_RADIUS) : r,
         population: commune.population,
+        priority,
       });
     }
     // Les noms évitent les étiquettes des cercles de distance (« 10 km »…)
@@ -562,6 +581,33 @@ export class MapView {
       m.addTo(this.favoritesLayer);
     }
     if (!this.map.hasLayer(this.favoritesLayer)) this.favoritesLayer.addTo(this.map);
+  }
+
+  /** Communes numérotées 1, 2, 3… (plan du rapport client), nommées en priorité. */
+  showNumbered(communes) {
+    this.numbersLayer.clearLayers();
+    this.priorityCodes = new Set(communes.map((c) => c.code));
+    communes.forEach((c, i) => {
+      L.marker([c.lat, c.lon], {
+        icon: L.divIcon({ className: 'number-marker', html: `<span>${i + 1}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }),
+        keyboard: false,
+        interactive: false,
+        zIndexOffset: 800,
+      }).addTo(this.numbersLayer);
+    });
+    this.updateLabels();
+  }
+
+  /** Cadre la carte sur les cercles et les communes données, sans animation. */
+  fitArea(points, communes, padding = 14) {
+    let bounds = null;
+    const extend = (b) => (bounds = bounds ? bounds.extend(b) : L.latLngBounds(b));
+    for (const p of points) {
+      const b = boundingBox(p.lat, p.lon, p.radius);
+      extend([[b.minLat, b.minLon], [b.maxLat, b.maxLon]]);
+    }
+    for (const c of communes) extend([[c.lat, c.lon], [c.lat, c.lon]]);
+    if (bounds) this.map.fitBounds(bounds, { padding: [padding, padding], animate: false, maxZoom: 14 });
   }
 
   hideFavorites() {

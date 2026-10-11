@@ -1422,47 +1422,46 @@ li.selected .result {
 .folder-marker.status-retenu span { background: #16a34a; }
 .folder-marker.status-ecarte span { background: #6b7280; }
 
+/* Plan du rapport client : dessiné hors de l'écran avant d'être placé dans le
+   rapport ; les calques Leaflet se placent par rapport au conteneur */
+.report-map {
+  position: relative;
+}
+
+body > .report-map-offscreen {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+
+/* Communes du dossier numérotées sur le plan du rapport */
+.number-marker span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #111827;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  font: 700 11px/1 system-ui, sans-serif;
+}
+
 @media print {
-  /* Plan du rapport : tuiles IGN sous un calque SVG (640 × 360) */
+  /* Plan du rapport : carte Leaflet figée (taille fixée en px par app.js) */
   .report-map {
-    position: relative;
-    width: 100%;
-    max-width: 16cm;
-    aspect-ratio: 640 / 360;
     margin: 6pt auto;
     overflow: hidden;
     border: 0.5pt solid #999;
-    background: #f2efe9;
     break-inside: avoid;
-    /* Fond sombre et filtre du mode sombre imprimés tels quels */
+    /* Fond, filtre du mode sombre et couleurs des points imprimés tels quels */
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
 
-  .report-map .report-tile {
-    position: absolute;
-    max-width: none;
-  }
-
-  .report-map-dark {
-    background: #1f2328;
-  }
-
-  .report-map svg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-  }
-
-  .report-map-credit {
-    position: absolute;
-    right: 0;
-    bottom: 0;
-    padding: 0 3pt;
-    font-size: 6.5pt;
-    color: #333;
-    background: rgba(255, 255, 255, 0.8);
+  .report-map .leaflet-control-attribution {
+    font-size: 7pt;
   }
 
   .report-brief {
