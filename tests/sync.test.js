@@ -263,3 +263,27 @@ test('sync : les dossiers et leurs notes passent d’un appareil à l’autre', 
   assert.equal(findFolder(laptop.folders, 'd1'), null);
   assert.ok(Array.isArray(cloud.docs.get('u1').dossiers));
 });
+
+test('réglages du compte : ville de départ, fusion et effacement', async () => {
+  const { cleanSettings, mergeSettings, setDeparture } = await import('../js/lib/settings.js');
+  const { cleanUserData, mergeUserData, sameUserData } = await import('../js/lib/userdata.js');
+  const t = (m) => new Date(Date.UTC(2026, 9, 11, 10, m));
+  const reims = setDeparture(null, { nom: 'Reims', lat: 49.2577886, lon: 4.031926, code: '51454' }, t(1));
+  assert.deepEqual(reims.depart, { nom: 'Reims', lat: 49.25779, lon: 4.03193, code: '51454' });
+  const agence = setDeparture(reims, { nom: '12 Rue de Vesle 51100 Reims', lat: 49.25, lon: 4.02 }, t(2));
+  assert.equal(agence.depart.code, undefined, 'adresse : pas de code commune');
+  assert.equal(mergeSettings(reims, agence), agence, 'le plus récent gagne');
+  assert.equal(mergeSettings(agence, reims), agence);
+  const cleared = setDeparture(agence, null, t(3));
+  assert.equal(cleared.depart, null);
+  assert.equal(mergeSettings(agence, cleared), cleared, 'l’effacement se propage');
+  assert.equal(cleanSettings({ depart: { nom: 'X', lat: 99, lon: 0 }, modifie: t(1).toISOString() }).depart, null);
+  assert.equal(cleanSettings({ depart: null }), null, 'sans date : ignoré');
+  // Document sans réglages (ancien format) : rien ne change
+  const old = cleanUserData({ items: [], dossiers: [] });
+  assert.equal(old.reglages, null);
+  const merged = mergeUserData(old, { items: [], dossiers: [], reglages: reims }, t(5));
+  assert.equal(merged.reglages, reims);
+  assert.ok(!sameUserData(old, merged));
+  assert.ok(sameUserData(merged, { ...merged }));
+});

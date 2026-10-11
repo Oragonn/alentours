@@ -131,23 +131,95 @@ export function nearGeometry(lat, lon, geometry, km) {
   return false;
 }
 
+// Au-delà, l'ordre exact coûterait trop cher : plus proche voisin puis 2-opt
+const EXACT_MAX_STOPS = 12;
+
+const km = (a, b) => distanceKm(a.lat, a.lon, b.lat, b.lon);
+
 /**
- * Ordre de visite : plus proche voisin à partir du point de départ.
- * start : { lat, lon } ou null ; places : [{ lat, lon, ... }]
+ * Ordre de visite le plus court (à vol d'oiseau), sans retour au départ.
+ * start : { lat, lon } ou null (on commence alors par n'importe quelle
+ * commune) ; places : [{ lat, lon, ... }]. Ordre exact jusqu'à
+ * EXACT_MAX_STOPS communes (Google Maps en accepte 10), très proche au-delà.
  */
 export function visitOrder(start, places) {
+  if (!places.length || (places.length <= 2 && !start)) return [...places];
+  if (places.length <= EXACT_MAX_STOPS) return exactOrder(start, places);
+  return improveOrder(start, nearestOrder(start, places));
+}
+
+/** Plus proche voisin : on va toujours à la commune la plus proche. */
+function nearestOrder(start, places) {
   const left = [...places];
   const order = [];
   let cur = start ?? left[0];
   while (left.length) {
     let best = 0;
-    for (let i = 1; i < left.length; i++) {
-      if (distanceKm(cur.lat, cur.lon, left[i].lat, left[i].lon) < distanceKm(cur.lat, cur.lon, left[best].lat, left[best].lon)) best = i;
-    }
+    for (let i = 1; i < left.length; i++) if (km(cur, left[i]) < km(cur, left[best])) best = i;
     cur = left.splice(best, 1)[0];
     order.push(cur);
   }
   return order;
+}
+
+/** Ordre exact (programmation dynamique sur les sous-ensembles déjà visités). */
+function exactOrder(start, places) {
+  const n = places.length;
+  const full = (1 << n) - 1;
+  const d = places.map((a) => places.map((b) => km(a, b)));
+  // cost[mask * n + j] : plus court chemin qui visite `mask` et finit en j
+  const cost = new Float64Array((full + 1) * n).fill(Infinity);
+  const prev = new Int8Array((full + 1) * n).fill(-1);
+  for (let j = 0; j < n; j++) cost[(1 << j) * n + j] = start ? km(start, places[j]) : 0;
+  for (let mask = 1; mask <= full; mask++) {
+    for (let j = 0; j < n; j++) {
+      const c = cost[mask * n + j];
+      if (!(mask & (1 << j)) || c === Infinity) continue;
+      for (let k = 0; k < n; k++) {
+        if (mask & (1 << k)) continue;
+        const next = (mask | (1 << k)) * n + k;
+        if (c + d[j][k] < cost[next]) {
+          cost[next] = c + d[j][k];
+          prev[next] = j;
+        }
+      }
+    }
+  }
+  let last = 0;
+  for (let j = 1; j < n; j++) if (cost[full * n + j] < cost[full * n + last]) last = j;
+  const order = [];
+  for (let mask = full, j = last; j >= 0; ) {
+    order.push(places[j]);
+    const p = prev[mask * n + j];
+    mask &= ~(1 << j);
+    j = p;
+  }
+  return order.reverse();
+}
+
+/** 2-opt : on retourne un tronçon tant que le trajet raccourcit. */
+function improveOrder(start, order) {
+  const path = [...order];
+  const n = path.length;
+  let improved = true;
+  while (improved) {
+    improved = false;
+    for (let i = 0; i < n - 1; i++) {
+      const a = i > 0 ? path[i - 1] : start;
+      for (let k = i + 1; k < n; k++) {
+        const b = path[i];
+        const c = path[k];
+        const e = path[k + 1];
+        const before = (a ? km(a, b) : 0) + (e ? km(c, e) : 0);
+        const after = (a ? km(a, c) : 0) + (e ? km(b, e) : 0);
+        if (after < before - 1e-9) {
+          path.splice(i, k - i + 1, ...path.slice(i, k + 1).reverse());
+          improved = true;
+        }
+      }
+    }
+  }
+  return path;
 }
 
 /**

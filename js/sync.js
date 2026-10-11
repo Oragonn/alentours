@@ -3,7 +3,8 @@
 // rien n'est chargé. Le SDK Firebase n'est téléchargé que pour les personnes
 // qui se connectent.
 //
-// Données : un document par compte, favoris/{uid} = { version, items, dossiers, modifie }.
+// Données : un document par compte, favoris/{uid} = { version, items, dossiers,
+// reglages?, modifie } (reglages : seulement s'il y en a, cf. firestore.rules).
 // Fusion : mergeUserData() (la version la plus récente de chaque favori, dossier
 // et ville de dossier gagne,
 // suppressions comprises).
@@ -39,7 +40,13 @@ export async function loadFirebaseFromCdn(config) {
       F.runTransaction(db, async (tx) => {
         const snap = await tx.get(ref(uid));
         const merged = fn(snap.exists() ? cleanUserData(snap.data()) : EMPTY_USER_DATA);
-        tx.set(ref(uid), { version: 2, items: merged.items, dossiers: merged.dossiers, modifie: F.serverTimestamp() });
+        tx.set(ref(uid), {
+          version: 2,
+          items: merged.items,
+          dossiers: merged.dossiers,
+          ...(merged.reglages ? { reglages: merged.reglages } : {}),
+          modifie: F.serverTimestamp(),
+        });
         return merged;
       }),
     remove: (uid) => F.deleteDoc(ref(uid)),
@@ -52,7 +59,7 @@ const SILENT_ERRORS = ['auth/popup-closed-by-user', 'auth/cancelled-popup-reques
 /**
  * @param {object} o
  *   config          configuration Firebase, ou null (synchronisation absente)
- *   getLocal()      données locales { items, dossiers } (avec marques de suppression)
+ *   getLocal()      données locales { items, dossiers, reglages } (avec marques de suppression)
  *   setLocal(data)  remplace les données locales (et met l'affichage à jour)
  *   onState(state)  { status, user, error } — status : off | idle | loading |
  *                   signed-out | syncing | synced | error

@@ -41,6 +41,7 @@ import {
   visibleFolders,
 } from './lib/folders.js';
 import { exportUserData, importUserData, parseUserDataFile } from './lib/userdata.js';
+import { cleanSettings, setDeparture } from './lib/settings.js';
 import { comparisonTable } from './lib/compare.js';
 import { directionsUrl, distanceKm, nearGeometry, visitOrder, zonesOverlap } from './lib/geo.js';
 import { budgetCheck, budgetIsSet, formatEuros, PROPERTY_TYPES } from './lib/budget.js';
@@ -132,6 +133,9 @@ let results = [];
 let resultIndex = new Map();
 let favorites = readStoredFavorites(loadJson(STORAGE_KEYS.favorites));
 let folders = cleanFolders(loadJson(STORAGE_KEYS.folders)?.dossiers);
+// Réglages du compte (ville de départ des itinéraires), synchronisés
+let settings = cleanSettings(loadJson(STORAGE_KEYS.settings));
+let syncUser = null;
 let sync = null;
 let lastFocus = null;
 let sheetBeforeDetails = null;
@@ -254,9 +258,16 @@ const els = {
   compareDialog: $('compare'),
   compareBody: $('compare-body'),
   compareClose: $('compare-close'),
-  sync: $('sync'),
+  account: $('account'),
+  accountBtn: $('account-btn'),
+  accountAvatar: $('account-avatar'),
+  accountLabel: $('account-label'),
+  accountMenu: $('account-menu'),
+  accountWho: $('account-who'),
+  routeStart: $('route-start'),
+  routeStartList: $('route-start-list'),
+  routeStartClear: $('route-start-clear'),
   syncStatus: $('sync-status'),
-  syncSignIn: $('sync-signin'),
   syncSignOut: $('sync-signout'),
   syncDelete: $('sync-delete'),
 };
@@ -1122,6 +1133,7 @@ document.addEventListener('keydown', (e) => {
 function saveFavorites({ fromSync = false } = {}) {
   saveJson(STORAGE_KEYS.favorites, toStoredFavorites(favorites));
   saveJson(STORAGE_KEYS.folders, { version: 1, dossiers: folders });
+  if (settings) saveJson(STORAGE_KEYS.settings, settings);
   const n = visibleFavorites(favorites).length;
   els.favCount.textContent = n ? String(n) : '';
   const f = visibleFolders(folders).length;
@@ -1130,9 +1142,11 @@ function saveFavorites({ fromSync = false } = {}) {
 }
 
 /** Favoris reçus d'un autre appareil : mise à jour de l'affichage. */
-function applySyncedFavorites({ items, dossiers }) {
+function applySyncedFavorites({ items, dossiers, reglages }) {
   favorites = items;
   folders = dossiers;
+  settings = reglages ?? null;
+  renderRouteStart();
   saveFavorites({ fromSync: true });
   favoritesChanged();
   if (state.view === 'favorites') renderFavorites();
@@ -1481,12 +1495,15 @@ els.folderRoute.addEventListener('click', () => {
     flash(els.folderFeedback, 'Aucune commune à visiter dans ce dossier.', true);
     return;
   }
-  const start = setPoints()[0] ?? null;
+  // Départ : la ville du compte (si connecté), sinon le point de la recherche
+  const home = routeStartPoint();
+  const start = home ?? setPoints()[0] ?? null;
   const link = directionsUrl(start, visitOrder(start, places));
   window.open(link.url, '_blank', 'noopener');
   flash(
     els.folderFeedback,
     (onlyToVisit ? 'Itinéraire des communes « À visiter »' : 'Itinéraire des communes non écartées') +
+      (home ? ` depuis ${home.name}` : '') +
       (link.truncated ? ` : Google Maps limite à ${link.count} étapes, les plus proches sont ouvertes.` : ' ouvert dans Google Maps.')
   );
 });
@@ -1752,30 +1769,121 @@ els.importCancel.addEventListener('click', () => {
 
 // ---- Synchronisation des favoris (facultative) ---------------------------
 
+// ---- Compte (en haut à droite) ---------------------------------------------
+
 function renderSyncState({ status, user, error }) {
-  els.sync.hidden = status === 'off';
-  if (status === 'off') return;
-  const who = user ? (user.name ? `${user.name} (${user.email})` : user.email) : '';
+  const off = status === 'off';
+  els.account.hidden = off;
+  $('panel').closest('.app').classList.toggle('has-account', !off);
+  if (off) return;
+  syncUser = user ?? null;
   const texts = {
-    idle: 'Non connecté : vos favoris restent sur cet appareil.',
-    'signed-out': 'Non connecté : vos favoris restent sur cet appareil.',
-    loading: 'Connexion…',
-    syncing: `Connecté : ${who} · synchronisation…`,
-    synced: `Connecté : ${who} · favoris synchronisés`,
-    error: `La synchronisation a échoué (${error}). Vos favoris restent enregistrés sur cet appareil.`,
+    syncing: 'Synchronisation…',
+    synced: 'Favoris, dossiers et réglages synchronisés',
+    error: `La synchronisation a échoué (${error}). Vos données restent enregistrées sur cet appareil.`,
   };
-  els.syncStatus.textContent = texts[status] ?? '';
+  els.syncStatus.textContent = user ? texts[status] ?? '' : '';
   els.syncStatus.classList.toggle('error', status === 'error');
-  els.syncSignIn.hidden = Boolean(user);
-  els.syncSignIn.disabled = status === 'loading';
-  els.syncSignOut.hidden = !user;
-  els.syncDelete.hidden = !user;
+  // Bouton : « Se connecter », ou l'initiale et le prénom du compte
+  els.accountBtn.classList.toggle('signed-out', !user);
+  els.accountBtn.classList.toggle('has-error', status === 'error');
+  els.accountBtn.disabled = status === 'loading';
+  els.accountAvatar.hidden = !user;
+  if (user) {
+    const name = user.name || user.email || 'Mon compte';
+    els.accountAvatar.textContent = name.trim().charAt(0).toUpperCase();
+    els.accountLabel.textContent = name.split(/\s+/)[0];
+    els.accountBtn.title = `Mon compte : ${user.email ?? name}`;
+    els.accountBtn.setAttribute('aria-expanded', String(!els.accountMenu.hidden));
+    els.accountBtn.setAttribute('aria-controls', 'account-menu');
+    els.accountWho.textContent = user.name ? `${user.name} · ${user.email}` : user.email;
+  } else {
+    els.accountLabel.textContent = status === 'loading' ? 'Connexion…' : 'Se connecter';
+    els.accountBtn.title =
+      status === 'error'
+        ? `La connexion a échoué (${error}). Cliquez pour réessayer.`
+        : 'Se connecter avec Google : favoris, dossiers et réglages retrouvés sur vos autres appareils';
+    els.accountBtn.removeAttribute('aria-expanded');
+    els.accountBtn.removeAttribute('aria-controls');
+    closeAccountMenu({ focus: false });
+  }
+  renderRouteStart();
 }
+
+function openAccountMenu() {
+  els.accountMenu.hidden = false;
+  els.accountBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeAccountMenu({ focus = true } = {}) {
+  if (els.accountMenu.hidden) return;
+  els.accountMenu.hidden = true;
+  els.accountBtn.setAttribute('aria-expanded', 'false');
+  if (focus) els.accountBtn.focus();
+}
+
+els.accountBtn.addEventListener('click', () => {
+  if (!syncUser) sync?.signIn();
+  else if (els.accountMenu.hidden) openAccountMenu();
+  else closeAccountMenu();
+});
+// Clic ailleurs ou Échap : le menu se ferme
+document.addEventListener('pointerdown', (e) => {
+  if (!els.accountMenu.hidden && !els.account.contains(e.target)) closeAccountMenu({ focus: false });
+});
+els.account.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !els.accountMenu.hidden) {
+    e.stopPropagation();
+    closeAccountMenu();
+  }
+});
+
+/** Ville de départ des itinéraires (réglage du compte), si connecté. */
+function routeStartPoint() {
+  const d = syncUser ? settings?.depart : null;
+  return d ? { lat: d.lat, lon: d.lon, name: d.nom } : null;
+}
+
+function renderRouteStart() {
+  if (document.activeElement === els.routeStart) return;
+  els.routeStart.value = settings?.depart?.nom ?? '';
+  els.routeStartClear.hidden = !els.routeStart.value;
+}
+
+function saveRouteStart(place) {
+  settings = setDeparture(settings, place);
+  saveFavorites();
+  renderRouteStart();
+}
+
+attachAutocomplete(els.routeStart, els.routeStartList, {
+  getData: () => data,
+  suggest: (q) => suggest(data, q),
+  more: addressSuggestions,
+  onSelect: (item) => {
+    saveRouteStart(item.address ? { nom: item.label, lat: item.lat, lon: item.lon } : { nom: item.nom, lat: item.lat, lon: item.lon, code: item.code });
+    els.routeStart.blur();
+    renderRouteStart();
+  },
+});
+els.routeStart.addEventListener('input', () => (els.routeStartClear.hidden = !els.routeStart.value));
+els.routeStart.addEventListener('blur', () => {
+  setTimeout(() => {
+    if (document.activeElement === els.routeStart) return;
+    // Champ vidé : plus de ville de départ ; texte sans choix : on réaffiche la ville
+    if (!els.routeStart.value.trim() && settings?.depart) saveRouteStart(null);
+    else renderRouteStart();
+  }, 150);
+});
+els.routeStartClear.addEventListener('click', () => {
+  saveRouteStart(null);
+  els.routeStart.focus();
+});
 
 function initSync() {
   sync = createSync({
     config: FIREBASE_CONFIG,
-    getLocal: () => ({ items: favorites, dossiers: folders }),
+    getLocal: () => ({ items: favorites, dossiers: folders, reglages: settings }),
     setLocal: applySyncedFavorites,
     onState: renderSyncState,
     flag: { get: () => load(STORAGE_KEYS.sync), set: (v) => save(STORAGE_KEYS.sync, v) },
@@ -1783,10 +1891,15 @@ function initSync() {
   sync.start();
 }
 
-els.syncSignIn.addEventListener('click', () => sync?.signIn());
-els.syncSignOut.addEventListener('click', () => sync?.signOut());
+els.syncSignOut.addEventListener('click', () => {
+  closeAccountMenu();
+  sync?.signOut();
+});
 els.syncDelete.addEventListener('click', () => {
-  if (window.confirm('Supprimer les favoris enregistrés en ligne ? Ils restent sur cet appareil.')) sync?.deleteRemote();
+  if (window.confirm('Supprimer vos données enregistrées en ligne (favoris, dossiers, réglages) ? Elles restent sur cet appareil.')) {
+    closeAccountMenu();
+    sync?.deleteRemote();
+  }
 });
 // Envoie les dernières modifications avant que la page soit quittée ou masquée
 document.addEventListener('visibilitychange', () => {

@@ -173,3 +173,36 @@ test('géocodage : saisies qui ressemblent à une adresse', async () => {
   assert.ok(!looksLikeAddress('Saint Brice'));
   assert.ok(!looksLikeAddress('59000'));
 });
+
+test('itinéraire : ordre le plus court (exact jusqu’à 12 communes, 2-opt au-delà)', async () => {
+  const { visitOrder, distanceKm } = await import('../js/lib/geo.js');
+  const len = (s, o) => o.reduce((acc, p, i) => acc + distanceKm((i ? o[i - 1] : s).lat, (i ? o[i - 1] : s).lon, p.lat, p.lon), 0);
+  // Le plus proche voisin irait d'abord à « pres » puis reviendrait en arrière
+  const start = { lat: 50, lon: 3 };
+  const places = [
+    { id: 'pres', lat: 50, lon: 3.01 },
+    { id: 'derriere', lat: 50, lon: 2.985 },
+    { id: 'loin', lat: 50, lon: 3.03 },
+  ];
+  assert.deepEqual(visitOrder(start, places).map((p) => p.id), ['derriere', 'pres', 'loin']);
+  assert.deepEqual(visitOrder(start, []), []);
+  assert.equal(visitOrder(null, [places[0]]).length, 1);
+  // Comparaison avec tous les ordres possibles (8 communes)
+  let seed = 3;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const pts = Array.from({ length: 8 }, (_, i) => ({ id: i, lat: 50 + rnd() * 0.3, lon: 3 + rnd() * 0.4 }));
+  let best = Infinity;
+  const perm = (rest, cur, d) => {
+    if (d >= best) return;
+    if (!rest.length) return void (best = d);
+    rest.forEach((p, i) => perm([...rest.slice(0, i), ...rest.slice(i + 1)], p, d + distanceKm(cur.lat, cur.lon, p.lat, p.lon)));
+  };
+  perm(pts, start, 0);
+  const order = visitOrder(start, pts);
+  assert.equal(order.length, 8);
+  assert.ok(Math.abs(len(start, order) - best) < 1e-9, 'ordre optimal');
+  // Au-delà de 12 : toutes les communes, une seule fois
+  const many = Array.from({ length: 20 }, (_, i) => ({ id: i, lat: 50 + rnd() * 0.5, lon: 3 + rnd() * 0.5 }));
+  const big = visitOrder(start, many);
+  assert.deepEqual(big.map((p) => p.id).sort((a, b) => a - b), many.map((p) => p.id));
+});

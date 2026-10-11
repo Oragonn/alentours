@@ -78,4 +78,5 @@ export const STORAGE_KEYS = {
   folders: 'alentours.dossiers.v1',
   notesMigrated: 'alentours.notes-dossiers',
   sync: 'alentours.sync',
+  settings: 'alentours.reglages.v1',
 };

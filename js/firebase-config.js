@@ -1,6 +1,6 @@
 // Configuration Firebase pour synchroniser les favoris entre appareils.
 //
-// null = synchronisation désactivée (le bloc « Synchronisation » est masqué).
+// null = synchronisation désactivée (le bouton du compte est masqué).
 // Pour l'activer, suivre « Synchroniser les favoris » dans le README, puis
 // remplacer null par l'objet firebaseConfig de la console Firebase, par ex. :
 //

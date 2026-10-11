@@ -1,5 +1,5 @@
-// Données personnelles synchronisées : favoris + dossiers (fonctions pures).
-// Forme : { items: [favoris], dossiers: [dossiers] }
+// Données personnelles synchronisées : favoris, dossiers et réglages du compte
+// (fonctions pures). Forme : { items: [favoris], dossiers: [dossiers], reglages }
 
 import {
   cleanFavorites,
@@ -12,23 +12,29 @@ import {
   visibleFavorites,
 } from './favorites.js';
 import { cleanFolders, mergeFolders, sameFolders, visibleFolders } from './folders.js';
+import { cleanSettings, mergeSettings, sameSettings } from './settings.js';
 
-export const EMPTY_USER_DATA = Object.freeze({ items: [], dossiers: [] });
+export const EMPTY_USER_DATA = Object.freeze({ items: [], dossiers: [], reglages: null });
 
 /** Nettoie un document reçu (serveur, ancien format sans dossiers compris). */
 export function cleanUserData(raw) {
-  return { items: cleanFavorites(raw?.items), dossiers: cleanFolders(raw?.dossiers) };
+  return { items: cleanFavorites(raw?.items), dossiers: cleanFolders(raw?.dossiers), reglages: cleanSettings(raw?.reglages) };
 }
 
 export function mergeUserData(a, b, now = new Date()) {
   return {
     items: syncMerge(a.items ?? [], b.items ?? [], now),
     dossiers: mergeFolders(a.dossiers ?? [], b.dossiers ?? [], now),
+    reglages: mergeSettings(a.reglages ?? null, b.reglages ?? null),
   };
 }
 
 export function sameUserData(a, b) {
-  return sameFavorites(a.items ?? [], b.items ?? []) && sameFolders(a.dossiers ?? [], b.dossiers ?? []);
+  return (
+    sameFavorites(a.items ?? [], b.items ?? []) &&
+    sameFolders(a.dossiers ?? [], b.dossiers ?? []) &&
+    sameSettings(a.reglages, b.reglages)
+  );
 }
 
 // ---- Fichier d'export (alentours-favoris.json) ----------------------------

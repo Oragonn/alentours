@@ -100,10 +100,15 @@ limiter la clé « Browser key » aux sites `oragonn.github.io/*` et
 `localhost:*`.
 
 Données enregistrées : un document `favoris/{uid}` par compte : favoris (code
-INSEE, nom, dates) et dossiers (nom, communes, notes). Après une mise à jour
-de `firestore.rules`, recollez-le dans la console et publiez. Bouton « Supprimer mes favoris enregistrés en ligne »
-dans l'onglet Favoris. Une suppression de favori se propage aux autres
-appareils (une marque invisible est gardée 180 jours).
+INSEE, nom, dates), dossiers (nom, communes, notes, fiche client) et réglages
+(ville de départ des itinéraires). Après une mise à jour de `firestore.rules`,
+recollez-le dans la console et publiez.
+
+Le bouton du compte est en haut à droite de la page : « Se connecter », puis,
+une fois connecté, un menu avec la ville de départ des itinéraires,
+« Se déconnecter » et « Supprimer mes données en ligne ». Une suppression de
+favori se propage aux autres appareils (une marque invisible est gardée
+180 jours).
 
 ## Avant chaque commit : `npm run stamp`
 

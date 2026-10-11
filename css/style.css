@@ -1122,6 +1122,113 @@ li.selected .result {
   color: var(--danger);
 }
 
+/* ---- Compte (en haut à droite) ------------------------------------------ */
+
+.account {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  /* Au-dessus des contrôles Leaflet (1000) et de la fiche commune (800) */
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.account-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 0 14px 0 10px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-weight: 600;
+}
+
+.account-btn.signed-out {
+  padding: 0 16px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.account-btn.has-error::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.account-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.account-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(320px, calc(100vw - 24px));
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+
+.account-who {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.account-menu .hint {
+  margin: 0;
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Bureau : la fiche commune s'ouvre sous le bouton du compte */
+@media (min-width: 768px) {
+  .app.has-account .details {
+    top: 66px;
+    max-height: calc(100% - 78px);
+  }
+}
+
+/* Téléphone : le nom reste court, l'attribution de la carte passe dessous */
+@media (max-width: 767.98px) {
+  .account-label {
+    max-width: 9em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app.has-account .leaflet-top.leaflet-right {
+    top: 58px;
+  }
+}
+
 .sync-delete {
   align-self: flex-start;
   padding-left: 0;
