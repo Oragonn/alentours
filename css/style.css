@@ -1438,14 +1438,23 @@ body > .report-map-offscreen {
 .number-marker span {
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  box-sizing: border-box;
+  width: calc(22px * var(--map-k, 1));
+  height: calc(22px * var(--map-k, 1));
   border-radius: 50%;
   background: #111827;
   color: #fff;
-  border: 2px solid #fff;
+  border: calc(2px * var(--map-k, 1)) solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  font: 700 11px/1 system-ui, sans-serif;
+  font: 700 calc(11px * var(--map-k, 1)) / 1 system-ui, sans-serif;
+}
+
+/* Carte du rapport dessinée en grand (plus de détails), réduite à la page */
+.report-map-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
 }
 
 @media print {
@@ -1461,7 +1470,7 @@ body > .report-map-offscreen {
   }
 
   .report-map .leaflet-control-attribution {
-    font-size: 7pt;
+    font-size: calc(7pt * var(--map-k, 1));
   }
 
   .report-brief {
@@ -1990,7 +1999,8 @@ body > .report-map-offscreen {
   left: 0;
   top: 0;
   white-space: nowrap;
-  font-size: 12px;
+  /* --map-k : plan du rapport, dessiné en grand puis réduit */
+  font-size: calc(12px * var(--map-k, 1));
   font-weight: 600;
   line-height: 1.2;
   color: var(--text);
@@ -2003,7 +2013,7 @@ body > .report-map-offscreen {
 }
 
 .commune-label span.big {
-  font-size: 13px;
+  font-size: calc(13px * var(--map-k, 1));
   font-weight: 750;
 }
 

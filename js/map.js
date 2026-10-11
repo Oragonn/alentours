@@ -46,9 +46,13 @@ const NUMBER_RADIUS = 11;
 
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-/** Épingle du point de départ ; `lift` la remonte (en px) pour pointer sur un marqueur sans le cacher. */
-function pinIcon(color, lift = 0) {
-  const svg = `<svg width="30" height="40" viewBox="0 0 30 40" aria-hidden="true">
+/**
+ * Épingle du point de départ ; `lift` la remonte (en px) pour pointer sur un
+ * marqueur sans le cacher ; `k` l'agrandit (plan du rapport).
+ */
+function pinIcon(color, lift = 0, k = 1) {
+  const [w, hgt] = [30 * k, 40 * k];
+  const svg = `<svg width="${w}" height="${hgt}" viewBox="0 0 30 40" aria-hidden="true">
     <path d="M15 1C7.3 1 1 7.2 1 14.9 1 25.3 15 39 15 39s14-13.7 14-24.1C29 7.2 22.7 1 15 1z"
       fill="${color}" stroke="#fff" stroke-width="2"/>
     <circle cx="15" cy="15" r="5.5" fill="#fff"/>
@@ -56,9 +60,9 @@ function pinIcon(color, lift = 0) {
   return L.divIcon({
     className: 'start-marker',
     html: svg,
-    iconSize: [30, 40],
-    iconAnchor: [15, 39 + lift],
-    tooltipAnchor: [0, -36 - lift],
+    iconSize: [w, hgt],
+    iconAnchor: [w / 2, 39 * k + lift],
+    tooltipAnchor: [0, -36 * k - lift],
   });
 }
 
@@ -66,12 +70,15 @@ export class MapView {
   /**
    * @param {HTMLElement} el
    * @param {object} handlers { onMapClick(), onCommuneClick(code), getPadding() }
-   * @param {object} options { still, theme, style } : `still` = carte figée
-   *   (rapport imprimé) : ni contrôles ni interactions, thème et fond imposés.
+   * @param {object} options { still, theme, style, k } : `still` = carte figée
+   *   (rapport imprimé) : ni contrôles ni interactions, thème et fond imposés ;
+   *   `k` agrandit points, noms et épingle (carte dessinée en grand puis réduite).
    */
-  constructor(el, handlers, { still = false, theme = 'light', style = null } = {}) {
+  constructor(el, handlers, { still = false, theme = 'light', style = null, k = 1 } = {}) {
     this.handlers = handlers;
     this.still = still;
+    this.k = k;
+    el.style.setProperty('--map-k', String(k));
     this.theme = theme;
     this.style = style ?? (load(STORAGE_KEYS.mapStyle) === 'satellite' ? 'satellite' : 'plan');
     this.priorityCodes = null;
@@ -304,7 +311,7 @@ export class MapView {
       // Départ depuis une commune : l'épingle pointe juste au-dessus de son
       // marqueur, qui reste visible et cliquable à tous les niveaux de zoom.
       const pin = L.marker([p.lat, p.lon], {
-        icon: pinIcon(color, this.pinLift(p)),
+        icon: pinIcon(color, this.pinLift(p), this.k),
         keyboard: false,
         interactive: false,
         zIndexOffset: 1000,
@@ -316,12 +323,12 @@ export class MapView {
   }
 
   pinLift(p) {
-    return p.isCommune ? markerRadius(p.population, MARKER, this.map.getZoom()) + 2 : 0;
+    return p.isCommune ? this.dotRadius(p.population) + 2 : 0;
   }
 
   /** Après un zoom : l'épingle reste juste au-dessus du point de la commune. */
   updatePins() {
-    for (const { pin, p, color } of this.pins) pin.setIcon(pinIcon(color, this.pinLift(p)));
+    for (const { pin, p, color } of this.pins) pin.setIcon(pinIcon(color, this.pinLift(p), this.k));
   }
 
   drawRings(p, color) {
@@ -390,23 +397,28 @@ export class MapView {
     this.restyleMarkers();
   }
 
+  /** Rayon du point d'une commune au zoom actuel. */
+  dotRadius(population) {
+    return markerRadius(population, MARKER, this.map.getZoom()) * this.k;
+  }
+
   markerStyle(commune, colors) {
     const cat = sizeCategoryOf(commune.population).id;
     // Couleur : catégorie de taille, ou état du budget si un budget est saisi
     const fill = this.colorOf ? colors[this.colorOf(commune)] ?? colors[cat] : colors[cat];
     if (this.favoriteCodes?.has(commune.code)) {
       return {
-        radius: markerRadius(commune.population, MARKER, this.map.getZoom()) + 1,
+        radius: this.dotRadius(commune.population) + 1,
         color: '#f5b301',
-        weight: 3.5,
+        weight: 3.5 * this.k,
         fillColor: fill,
         fillOpacity: 0.95,
       };
     }
     return {
-      radius: markerRadius(commune.population, MARKER, this.map.getZoom()),
+      radius: this.dotRadius(commune.population),
       color: colors.stroke,
-      weight: this.style === 'satellite' ? 2 : 1.5,
+      weight: (this.style === 'satellite' ? 2 : 1.5) * this.k,
       fillColor: fill,
       fillOpacity: 0.9,
     };
@@ -453,13 +465,13 @@ export class MapView {
       if (!priority && (commune.population ?? 0) < minPopulation) continue;
       const pt = this.map.latLngToContainerPoint([commune.lat, commune.lon]);
       if (pt.x < -200 || pt.y < -20 || pt.x > size.x + 20 || pt.y > size.y + 20) continue;
-      const r = markerRadius(commune.population, MARKER, zoom);
+      const r = this.dotRadius(commune.population);
       candidates.push({
         commune,
         name: commune.nom,
         x: pt.x,
         y: pt.y,
-        r: priority ? Math.max(r, NUMBER_RADIUS) : r,
+        r: priority ? Math.max(r, NUMBER_RADIUS * this.k) : r,
         population: commune.population,
         priority,
       });
@@ -475,7 +487,14 @@ export class MapView {
         }
       }
     }
-    const placed = placeLabels(candidates, { width: size.x, height: size.y, maxCount: LABELS.maxCount, obstacles });
+    const placed = placeLabels(candidates, {
+      width: size.x,
+      height: size.y,
+      maxCount: LABELS.maxCount,
+      obstacles,
+      charWidth: 6.8 * this.k,
+      lineHeight: 16 * this.k,
+    });
     for (const { commune, r } of placed) {
       const span = document.createElement('span');
       span.textContent = commune.nom;
@@ -519,7 +538,7 @@ export class MapView {
     if (!commune) return;
     L.circleMarker([commune.lat, commune.lon], {
       renderer: this.highlightRenderer,
-      radius: markerRadius(commune.population, MARKER, this.map.getZoom()) + 5,
+      radius: this.dotRadius(commune.population) + 5,
       color: cssVar('--accent'),
       weight: 3,
       fill: false,
@@ -589,7 +608,12 @@ export class MapView {
     this.priorityCodes = new Set(communes.map((c) => c.code));
     communes.forEach((c, i) => {
       L.marker([c.lat, c.lon], {
-        icon: L.divIcon({ className: 'number-marker', html: `<span>${i + 1}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] }),
+        icon: L.divIcon({
+          className: 'number-marker',
+          html: `<span>${i + 1}</span>`,
+          iconSize: [22 * this.k, 22 * this.k],
+          iconAnchor: [11 * this.k, 11 * this.k],
+        }),
         keyboard: false,
         interactive: false,
         zIndexOffset: 800,

@@ -2006,7 +2006,9 @@ function clientReport(folder) {
 // Même carte que l'application (fond, thème, points colorés, noms, épingle),
 // figée, avec les communes du dossier numérotées comme dans le rapport. Gardée
 // tant que rien ne change : l'impression (Ctrl+P compris) la réutilise.
-const REPORT_MAP = { width: 700, height: 400 };
+// Taille sur la page (px) ; la carte est dessinée `zoom` fois plus grande puis
+// réduite : zoom plus proche, plus de routes et de noms, comme sur un grand écran
+const REPORT_MAP = { width: 700, height: 440, zoom: 1.6 };
 let reportMapCache = null;
 
 /** Communes de la zone du rapport : celle de la fiche, sinon la recherche en cours. */
@@ -2038,20 +2040,25 @@ function reportMap(folder, pts) {
     reportMapCache.view.map.remove();
     reportMapCache.el.remove();
   }
-  const el = h('div', { class: 'report-map report-map-offscreen' });
-  el.style.width = `${REPORT_MAP.width}px`;
-  el.style.height = `${REPORT_MAP.height}px`;
+  const { width, height, zoom } = REPORT_MAP;
+  const inner = h('div', { class: 'report-map-inner' });
+  inner.style.width = `${width * zoom}px`;
+  inner.style.height = `${height * zoom}px`;
+  inner.style.transform = `scale(${1 / zoom})`;
+  const el = h('div', { class: 'report-map report-map-offscreen' }, inner);
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
   // Couleurs des noms du thème affiché (sinon l'impression repasse en clair)
   const root = getComputedStyle(document.documentElement);
   for (const name of ['--text', '--bg', '--surface-2']) el.style.setProperty(name, root.getPropertyValue(name));
   // Leaflet mesure son conteneur : rendu hors de l'écran, puis placé dans le rapport
   document.body.append(el);
-  const view = new MapView(el, {}, { still: true, theme: effectiveTheme(), style: mapView.style });
+  const view = new MapView(inner, {}, { still: true, theme: effectiveTheme(), style: mapView.style, k: zoom });
   if (mapView.useSatelliteFallback) {
     view.useSatelliteFallback = true;
     view.updateBaseLayer();
   }
-  view.fitArea(pts, towns);
+  view.fitArea(pts, towns, 14 * zoom);
   const inZone = new Set(zone.map((r) => r.commune.code));
   view.render({
     points: pts.map((p) => ({
