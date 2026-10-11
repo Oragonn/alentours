@@ -2,23 +2,24 @@
 //
 // Un point :        ?c=59350&r=30&pmin=10000&tri=population-desc
 // Point sur carte : ?lat=50.62920&lon=3.05730&r=30
-// Plusieurs points (Phase 2) : ?pt=59350,20&pt=62041,15&pt=50.62920,3.05730,10
+// Adresse :         ?lat=49.25264&lon=4.02654&r=30&n=12%20Rue%20de%20Vesle%2051100%20Reims
+// Plusieurs points (Phase 2) : ?pt=59350,20&pt=62041,15&pt=50.62920,3.05730,10[,nom]
 // Filtres :         &reg=32&dep=59,62
 // Budget :          &budget=300000&bien=maison&surf=110&dansbudget=1
 // Trajet :          &trajet=30 (minutes en voiture)
 
-import { RADIUS } from '../config.js';
+import { DRIVE, RADIUS } from '../config.js';
 import { formatSort, parseSort } from './sort.js';
 
 const CODE_RE = /^[0-9][0-9AB][0-9]{3}$/;
 const DEP_RE = /^(\d{2,3}|2A|2B)$/;
 const REG_RE = /^\d{2,3}$/;
 
-/** Durées proposées pour « Trajet max en voiture » (minutes). */
-export const DRIVE_TIMES = [15, 20, 30, 45, 60];
-
 const fixed5 = (n) => Number(n).toFixed(5);
 const enc = (v) => encodeURIComponent(v).replace(/%2C/gi, ',');
+// Nom d'une adresse (les virgules restent encodées : séparateur de « pt »)
+const MAX_NAME = 150;
+const nameOrNull = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, MAX_NAME) : null);
 
 function radiusOrNull(text) {
   const n = Number(text);
@@ -50,9 +51,12 @@ export function encodeSearch(state) {
       add('lon', fixed5(p.lon));
     }
     add('r', p.radius);
+    if (!p.code && nameOrNull(p.name)) add('n', nameOrNull(p.name));
   } else {
     for (const p of points) {
+      const name = p.code ? null : nameOrNull(p.name);
       add('pt', p.code ? `${p.code},${p.radius}` : `${fixed5(p.lat)},${fixed5(p.lon)},${p.radius}`);
+      if (name) parts[parts.length - 1] += `,${encodeURIComponent(name)}`;
     }
   }
   if (state.popMin != null) add('pmin', state.popMin);
@@ -84,10 +88,11 @@ export function decodeSearch(query, { isKnownCode = () => true } = {}) {
       const [code, r] = parts;
       const radius = radiusOrNull(r);
       if (CODE_RE.test(code) && isKnownCode(code)) return { code, radius: radius ?? RADIUS.default };
-    } else if (parts.length === 3) {
+    } else if (parts.length >= 3) {
       const ll = latLonOrNull(parts[0], parts[1]);
       const radius = radiusOrNull(parts[2]);
-      if (ll) return { ...ll, radius: radius ?? RADIUS.default };
+      const name = nameOrNull(parts.slice(3).join(','));
+      if (ll) return { ...ll, radius: radius ?? RADIUS.default, ...(name ? { name } : {}) };
     }
     return null;
   };
@@ -103,7 +108,10 @@ export function decodeSearch(query, { isKnownCode = () => true } = {}) {
     const code = params.get('c');
     const ll = latLonOrNull(params.get('lat') ?? '', params.get('lon') ?? '');
     if (code && CODE_RE.test(code) && isKnownCode(code)) points.push({ code, radius });
-    else if (ll) points.push({ ...ll, radius });
+    else if (ll) {
+      const name = nameOrNull(params.get('n'));
+      points.push({ ...ll, radius, ...(name ? { name } : {}) });
+    }
     else if (params.has('r') && radiusOrNull(params.get('r')) != null) state.radius = radius;
   }
   if (points.length) state.points = points;
@@ -139,7 +147,7 @@ export function decodeSearch(query, { isKnownCode = () => true } = {}) {
     };
     if (params.get('dansbudget') === '1') state.budgetOnly = true;
   }
-  const trajet = int('trajet', 1, 600);
-  if (trajet && DRIVE_TIMES.includes(trajet)) state.driveMax = trajet;
+  const trajet = int('trajet', DRIVE.min, DRIVE.max);
+  if (trajet) state.driveMax = trajet;
   return state;
 }

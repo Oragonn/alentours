@@ -2,6 +2,7 @@
 
 import {
   APP_NAME,
+  DRIVE,
   DVF_MIN_SALES,
   LIST_PAGE_SIZE,
   MAX_STARTING_POINTS,
@@ -24,6 +25,7 @@ import {
 } from './lib/favorites.js';
 import {
   addToFolder,
+  briefHasZone,
   cleanFolders,
   createFolder,
   deleteFolder,
@@ -43,12 +45,21 @@ import { comparisonTable } from './lib/compare.js';
 import { directionsUrl, distanceKm, nearGeometry, visitOrder, zonesOverlap } from './lib/geo.js';
 import { budgetCheck, budgetIsSet, formatEuros, PROPERTY_TYPES } from './lib/budget.js';
 import { formatDuration, isochrone, travelTime } from './routing.js';
+import { looksLikeAddress, searchAddresses } from './geocode.js';
 import { priceInfo, trendText } from './lib/insights.js';
 import { adminFacets, filterByAdmin, searchArea, validatePopulation } from './lib/search.js';
 import { sortResults } from './lib/sort.js';
 import { suggest } from './lib/suggest.js';
 import { deName, searchSummary } from './lib/summary.js';
-import { formatCoords, formatNumber, parseDecimalInput, parseIntegerInput, resultsCountLabel } from './lib/text.js';
+import {
+  formatCoords,
+  formatMinutes,
+  formatNumber,
+  parseDecimalInput,
+  parseIntegerInput,
+  parseMinutesInput,
+  resultsCountLabel,
+} from './lib/text.js';
 import { decodeSearch, encodeSearch } from './lib/url.js';
 import { FIREBASE_CONFIG } from './firebase-config.js';
 import { MapView } from './map.js';
@@ -86,6 +97,7 @@ const newPoint = (radius = RADIUS.default) => ({
   lon: null,
   radius,
   name: '',
+  address: false, // point placé sur une adresse (sans commune)
 });
 
 const state = {
@@ -350,7 +362,7 @@ function renderPoints() {
     const input = h('input', {
       id: qId,
       type: 'text',
-      placeholder: 'Ex. : Lille ou 59000',
+      placeholder: 'Ex. : Lille, 59000 ou 12 rue de Vesle Reims',
       autocomplete: 'off',
       autocapitalize: 'off',
       spellcheck: 'false',
@@ -360,7 +372,7 @@ function renderPoints() {
     const listbox = h('ul', { id: listId, class: 'suggestions', hidden: true, 'aria-label': 'Suggestions' });
     const clearBtn = h(
       'button',
-      { type: 'button', class: 'combo-clear', 'aria-label': 'Effacer la ville', title: 'Effacer', hidden: !input.value },
+      { type: 'button', class: 'combo-clear', 'aria-label': 'Effacer le point de départ', title: 'Effacer', hidden: !input.value },
       '✕'
     );
     const range = h('input', {
@@ -380,7 +392,7 @@ function renderPoints() {
       h(
         'div',
         { class: 'point-head' },
-        h('label', { for: qId }, multi ? `Point ${i + 1} · Ville ou code postal` : 'Ville ou code postal'),
+        h('label', { for: qId }, multi ? `Point ${i + 1} · Ville, code postal ou adresse` : 'Ville, code postal ou adresse'),
         h(
           'button',
           {
@@ -408,7 +420,8 @@ function renderPoints() {
     attachAutocomplete(input, listbox, {
       getData: () => data,
       suggest: (q) => suggest(data, q),
-      onSelect: (commune) => setPointCommune(i, commune),
+      more: addressSuggestions,
+      onSelect: (item) => (item.address ? setPointAddress(i, item) : setPointCommune(i, item)),
     });
     input.addEventListener('input', () => (clearBtn.hidden = !input.value));
     input.addEventListener('blur', () => {
@@ -482,12 +495,32 @@ function setActivePoint(i) {
   state.active = i;
 }
 
+/** Adresses (service IGN) proposées après les communes, si la saisie s'y prête. */
+function addressSuggestions(query, local) {
+  if (!looksLikeAddress(query, local.items.length > 0)) return null;
+  return () => searchAddresses(query);
+}
+
 function setPointCommune(i, commune) {
   const p = state.points[i];
   p.commune = commune;
   p.lat = commune.lat;
   p.lon = commune.lon;
   p.name = commune.nom;
+  p.address = false;
+  showPoint(p);
+}
+
+/** Point de départ sur une adresse (« 12 Rue de Vesle 51100 Reims »). */
+function setPointAddress(i, address) {
+  const p = state.points[i];
+  Object.assign(p, addressPoint(address));
+  showPoint(p);
+}
+
+const addressPoint = (a) => ({ commune: null, lat: a.lat, lon: a.lon, name: a.label, address: true });
+
+function showPoint(p) {
   p.el.input.value = pointLabel(p);
   const clear = p.el.block.querySelector('.combo-clear');
   if (clear) clear.hidden = false;
@@ -504,6 +537,7 @@ function clearPoint(i) {
   p.lat = null;
   p.lon = null;
   p.name = '';
+  p.address = false;
   if (p.el) {
     p.el.input.value = '';
     const clear = p.el.block.querySelector('.combo-clear');
@@ -610,7 +644,7 @@ function renderCount(points) {
   if (!points.length) {
     els.count.textContent = 'Choisissez un point de départ';
     els.hint.hidden = false;
-    els.hint.textContent = 'Choisissez une ville ou un code postal';
+    els.hint.textContent = 'Choisissez une ville, un code postal ou une adresse';
     return;
   }
   els.count.textContent = resultsCountLabel(results.length);
@@ -867,7 +901,7 @@ function fillTravel(commune) {
   });
 }
 
-const pointShortName = (p) => (p.commune ? p.commune.nom : 'le point');
+const pointShortName = (p) => (p.commune ? p.commune.nom : p.address ? p.name : 'le point');
 
 // ---- Trajet max en voiture (zones IGN) ---------------------------------------
 
@@ -922,7 +956,7 @@ function renderDriveStatus(points, zones) {
     return;
   }
   el.hidden = false;
-  const label = els.driveMax.selectedOptions[0]?.textContent ?? `${state.driveMax} min`;
+  const label = formatMinutes(state.driveMax);
   if (zones) el.textContent = `Zone à ${label} en voiture (IGN) : ${results.length} commune${results.length > 1 ? 's' : ''}.`;
   else if (state.driveError) {
     el.textContent = state.driveError;
@@ -930,9 +964,37 @@ function renderDriveStatus(points, zones) {
   } else el.textContent = `Calcul de la zone à ${label} en voiture…`;
 }
 
-els.driveMax.addEventListener('change', () => {
-  state.driveMax = Number(els.driveMax.value) || null;
+/** Saisie « 45 », « 1h30 »… → minutes bornées (null : pas de limite ; undefined : illisible). */
+function readMinutes(input) {
+  if (!input.value.trim()) return null;
+  const m = parseMinutesInput(input.value);
+  return m == null ? undefined : Math.min(DRIVE.max, Math.max(DRIVE.min, m));
+}
+
+const setDriveInput = (minutes) => (els.driveMax.value = minutes ? String(minutes) : '');
+
+function commitDrive({ final = false } = {}) {
+  const m = readMinutes(els.driveMax);
+  if (m === undefined) {
+    // Valeur illisible : on garde la limite actuelle
+    if (final) setDriveInput(state.driveMax);
+    return;
+  }
+  if (final) setDriveInput(m);
+  if (m === state.driveMax) return;
+  state.driveMax = m;
   runSearch();
+}
+
+// Chaque durée demande une zone au service IGN : on attend la fin de la saisie
+const driveSoon = debounce(() => commitDrive(), 700);
+els.driveMax.addEventListener('input', driveSoon);
+els.driveMax.addEventListener('change', () => commitDrive({ final: true }));
+els.driveMax.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    commitDrive({ final: true });
+  }
 });
 
 // ---- Budget du client -------------------------------------------------------
@@ -1259,10 +1321,12 @@ function openBriefForm() {
   if (!folder) return;
   const b = folder.fiche ?? {};
   els.briefClient.value = b.client ?? '';
-  const current = setPoints().find((p) => p.commune);
-  briefCity = b.zoneCode ? data.byCode.get(b.zoneCode) ?? null : current?.commune ?? null;
-  els.briefZone.value = briefCity ? communeLabel(briefCity, data.departements) : '';
-  const rayon = b.zoneCode ? b.zoneRayon : current?.radius;
+  // Nouvelle fiche : on part de la recherche en cours
+  const current = setPoints().find((p) => p.commune || p.address);
+  const zone = folder.fiche ? briefZonePoint(b) : current;
+  briefPlace = zone ? (zone.commune ?? { address: true, label: zone.name, lat: zone.lat, lon: zone.lon }) : null;
+  els.briefZone.value = briefPlaceLabel();
+  const rayon = folder.fiche ? b.zoneRayon : current?.radius;
   els.briefRayon.value = rayon ? String(rayon).replace('.', ',') : '';
   // Nouvelle fiche : on part des filtres de la recherche en cours
   const popMin = folder.fiche ? b.popMin : state.popError ? null : state.popMin;
@@ -1282,24 +1346,37 @@ function openBriefForm() {
   els.briefClient.focus();
 }
 
-// Ville choisie dans le formulaire de la fiche
-let briefCity = null;
+// Ville ou adresse choisie dans le formulaire de la fiche
+let briefPlace = null;
+const briefPlaceLabel = () =>
+  !briefPlace ? '' : briefPlace.address ? briefPlace.label : communeLabel(briefPlace, data.departements);
 attachAutocomplete(els.briefZone, els.briefZoneList, {
   getData: () => data,
   suggest: (q) => suggest(data, q),
-  onSelect: (commune) => {
-    briefCity = commune;
-    els.briefZone.value = communeLabel(commune, data.departements);
+  more: addressSuggestions,
+  onSelect: (item) => {
+    briefPlace = item;
+    els.briefZone.value = briefPlaceLabel();
     els.briefRayon.focus();
   },
 });
 els.briefZone.addEventListener('blur', () => {
   setTimeout(() => {
     if (document.activeElement === els.briefZone) return;
-    if (!els.briefZone.value.trim()) briefCity = null;
-    else if (briefCity) els.briefZone.value = communeLabel(briefCity, data.departements);
+    if (!els.briefZone.value.trim()) briefPlace = null;
+    else if (briefPlace) els.briefZone.value = briefPlaceLabel();
   }, 150);
 });
+
+/** Zone de la fiche client en point de départ (sans rayon), ou null. */
+function briefZonePoint(b) {
+  if (b?.zoneCode) {
+    const city = data.byCode.get(b.zoneCode);
+    return city ? { commune: city, lat: city.lat, lon: city.lon, name: city.nom, address: false } : null;
+  }
+  if (briefHasZone(b)) return addressPoint({ lat: b.zoneLat, lon: b.zoneLon, label: b.zoneNom });
+  return null;
+}
 
 function closeBriefForm() {
   state.editingBrief = false;
@@ -1312,14 +1389,18 @@ els.briefCancel.addEventListener('click', closeBriefForm);
 els.briefForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const rayon = parseDecimalInput(els.briefRayon.value);
+  const place = els.briefZone.value.trim() ? briefPlace : null;
   folders = setFolderBrief(folders, state.openFolder, {
     client: els.briefClient.value,
-    zoneCode: els.briefZone.value.trim() && briefCity ? briefCity.code : null,
-    zoneNom: briefCity?.nom ?? '',
-    zoneRayon: rayon != null ? Math.min(RADIUS.max, Math.max(RADIUS.min, rayon)) : RADIUS.default,
+    zoneCode: place && !place.address ? place.code : null,
+    zoneNom: place ? (place.address ? place.label : place.nom) : '',
+    zoneLat: place?.address ? place.lat : null,
+    zoneLon: place?.address ? place.lon : null,
+    // Rayon vide : « Appliquer » garde le rayon de la recherche
+    zoneRayon: rayon != null ? Math.min(RADIUS.max, Math.max(RADIUS.min, rayon)) : null,
     popMin: parseIntegerInput(els.briefPopMin.value),
     popMax: parseIntegerInput(els.briefPopMax.value),
-    trajetMax: Number(els.briefTrajet.value) || null,
+    trajetMax: readMinutes(els.briefTrajet) ?? null,
     budget: parseIntegerInput(els.briefBudget.value),
     surface: parseIntegerInput(els.briefSurface.value),
     type: els.briefType.value || null,
@@ -1330,49 +1411,59 @@ els.briefForm.addEventListener('submit', (e) => {
   closeBriefForm();
 });
 
+// Seuls les champs remplis dans la fiche changent la recherche : un trajet max
+// réglé dans la recherche reste en place si la fiche n'en indique pas.
 els.briefApply.addEventListener('click', () => {
   const b = findFolder(folders, state.openFolder)?.fiche;
-  const city = b?.zoneCode ? data.byCode.get(b.zoneCode) : null;
-  const hasBudget = Boolean(b?.budget && b?.surface);
+  const zone = briefZonePoint(b);
+  const hasRayon = Boolean(b?.zoneRayon);
   const hasPop = Boolean(b?.popMin || b?.popMax);
   const hasDrive = Boolean(b?.trajetMax);
-  if (!city && !hasBudget && !hasPop && !hasDrive) {
+  const hasBudget = Boolean(b?.budget || b?.surface || b?.type);
+  if (!zone && !hasRayon && !hasPop && !hasDrive && !hasBudget) {
     flash(
       els.folderFeedback,
-      'Indiquez une ville de recherche, une population, un trajet max ou un budget avec la surface dans la fiche client.',
+      'Indiquez une ville ou une adresse, un rayon, une population, un trajet max ou un budget dans la fiche client.',
       true
     );
     return;
   }
-  if (city) {
+  const radius = hasRayon ? b.zoneRayon : state.points[state.active]?.radius ?? RADIUS.default;
+  const km = `${String(radius).replace('.', ',')} km`;
+  if (zone) {
     // La zone de la fiche remplace les points de départ de la recherche
-    const p = newPoint(b.zoneRayon ?? RADIUS.default);
-    Object.assign(p, { commune: city, lat: city.lat, lon: city.lon, name: city.nom });
-    state.points = [p];
+    state.points = [Object.assign(newPoint(radius), zone)];
     state.active = 0;
+    renderPoints();
+  } else if (hasRayon) {
+    for (const p of state.points) p.radius = radius;
     renderPoints();
   }
   if (hasPop) {
-    els.popMin.value = b.popMin ? formatNumber(b.popMin) : '';
-    els.popMax.value = b.popMax ? formatNumber(b.popMax) : '';
+    if (b.popMin) els.popMin.value = formatNumber(b.popMin);
+    if (b.popMax) els.popMax.value = formatNumber(b.popMax);
     readPopulation();
   }
   if (hasDrive) {
     state.driveMax = b.trajetMax;
-    els.driveMax.value = String(b.trajetMax);
+    setDriveInput(b.trajetMax);
   }
   if (hasBudget) {
-    setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
+    setBudgetInputs({
+      budget: b.budget ?? parseIntegerInput(els.budgetAmount.value),
+      surface: b.surface ?? parseIntegerInput(els.budgetSurface.value),
+      type: b.type ?? els.budgetType.value,
+    });
     els.budgetBox.open = true;
   }
   setView('results');
-  runSearch({ fit: Boolean(city) });
+  runSearch({ fit: Boolean(zone || hasRayon) });
   ensureInsights();
   if (sheet.isMobile()) sheet.setState('half');
   const what = listJoin([
-    city ? briefZoneLabel(b) : '',
+    zone ? `${km} autour ${deName(zone.name)}` : hasRayon ? `rayon de ${km}` : '',
     hasPop ? 'population' : '',
-    hasDrive ? `trajet max ${els.driveMax.selectedOptions[0]?.textContent ?? `${b.trajetMax} min`}` : '',
+    hasDrive ? `trajet max ${formatMinutes(b.trajetMax)}` : '',
     hasBudget ? 'budget' : '',
   ]);
   flash(els.feedback, `Fiche de ${b.client || 'ce dossier'} appliquée : ${what}`);
@@ -1708,7 +1799,9 @@ document.addEventListener('visibilitychange', () => {
 function currentSearchState() {
   return {
     points: setPoints().map((p) =>
-      p.commune ? { code: p.commune.code, radius: p.radius } : { lat: p.lat, lon: p.lon, radius: p.radius }
+      p.commune
+        ? { code: p.commune.code, radius: p.radius }
+        : { lat: p.lat, lon: p.lon, radius: p.radius, ...(p.address ? { name: p.name } : {}) }
     ),
     popMin: state.popError ? null : state.popMin,
     popMax: state.popError ? null : state.popMax,
@@ -1734,8 +1827,8 @@ function summaryText() {
   ];
   return searchSummary({
     points: setPoints().map((p) =>
-      p.commune
-        ? { name: p.commune.nom, radius: p.radius }
+      p.commune || p.address
+        ? { name: p.name, radius: p.radius }
         : { name: p.name, radius: p.radius, de: `du point (${formatCoords(p.lat, p.lon)})` }
     ),
     popMin: state.popMin,
@@ -1855,15 +1948,15 @@ function reportTowns(folder) {
 /** Points du rapport : zone de la fiche client, sinon la recherche en cours. */
 function reportPoints(folder) {
   const b = folder.fiche;
-  const city = b?.zoneCode ? data.byCode.get(b.zoneCode) : null;
-  if (city) return [{ commune: city, lat: city.lat, lon: city.lon, radius: b.zoneRayon ?? RADIUS.default, name: city.nom }];
+  const zone = briefZonePoint(b);
+  if (zone) return [{ ...zone, radius: b.zoneRayon ?? setPoints()[0]?.radius ?? RADIUS.default }];
   return setPoints();
 }
 
 /** « Communes à moins de 25 km de Lille — 127 communes dans la zone » */
 function reportSummary(folder, pts) {
   if (!pts.length) return null;
-  if (!folder.fiche?.zoneCode) return summaryText();
+  if (!briefZonePoint(folder.fiche)) return summaryText();
   const count = searchArea(data.communes, { points: pts.map(({ lat, lon, radius }) => ({ lat, lon, radius })) }).length;
   return searchSummary({ points: pts.map((p) => ({ name: p.name, radius: p.radius })), count }).replace(/résultats?$/, (m) =>
     m === 'résultat' ? 'commune dans la zone' : 'communes dans la zone'
@@ -1876,7 +1969,6 @@ function listJoin(parts) {
   return list.length > 1 ? `${list.slice(0, -1).join(', ')} et ${list.at(-1)}` : list.join('');
 }
 
-const briefZoneLabel = (b) => `${String(b.zoneRayon ?? RADIUS.default).replace('.', ',')} km autour ${deName(b.zoneNom)}`;
 
 function clientReport(folder) {
   const pts = reportPoints(folder);
@@ -1932,14 +2024,27 @@ els.folderPrint.addEventListener('click', async () => {
   const folder = findFolder(folders, state.openFolder);
   if (!folder) return;
   els.folderPrint.disabled = true;
-  flash(els.folderFeedback, 'Préparation du rapport (temps de trajet)…');
+  flash(els.folderFeedback, 'Préparation du rapport (temps de trajet, plan)…');
   await ensureInsights();
   await travelTable(reportPoints(folder), reportTowns(folder).map((c) => data.byCode.get(c.code)));
+  buildPrintView();
+  // Fond du plan : on attend les tuiles (8 s au plus) pour ne pas imprimer un plan vide
+  await imagesLoaded(els.printView, 8000);
   els.folderPrint.disabled = false;
   els.folderFeedback.textContent = '';
-  buildPrintView();
   window.print();
 });
+
+/** Attend le chargement (ou l'échec) des images d'un élément, `ms` au plus. */
+function imagesLoaded(root, ms) {
+  const pending = [...root.querySelectorAll('img')]
+    .filter((img) => !img.complete)
+    .map((img) => new Promise((resolve) => {
+      img.addEventListener('load', resolve, { once: true });
+      img.addEventListener('error', resolve, { once: true });
+    }));
+  return Promise.race([Promise.all(pending), new Promise((r) => setTimeout(r, ms))]);
+}
 
 els.favoritesPrint.addEventListener('click', async () => {
   await ensureInsights();
@@ -2009,6 +2114,8 @@ function applyUrlState() {
       if (d.code) {
         const c = data.byCode.get(d.code);
         Object.assign(p, { commune: c, lat: c.lat, lon: c.lon, name: c.nom });
+      } else if (d.name) {
+        Object.assign(p, addressPoint({ lat: d.lat, lon: d.lon, label: d.name }));
       } else {
         Object.assign(p, { lat: d.lat, lon: d.lon, name: `Point sur la carte (${formatCoords(d.lat, d.lon)})` });
       }
@@ -2038,7 +2145,7 @@ function applyUrlState() {
   }
   if (decoded.driveMax) {
     state.driveMax = decoded.driveMax;
-    els.driveMax.value = String(decoded.driveMax);
+    setDriveInput(decoded.driveMax);
   }
 }
 

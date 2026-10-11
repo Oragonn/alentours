@@ -6,6 +6,7 @@
 //            marque (supprime) pour que la synchronisation la propage.
 //   supprime : dossier supprimé (marque gardée TOMBSTONE_DAYS jours).
 
+import { DRIVE } from '../config.js';
 import {
   STATUSES,
   addFavorite,
@@ -26,6 +27,8 @@ export const BRIEF_FIELDS = [
   'client',
   'zoneCode',
   'zoneNom',
+  'zoneLat',
+  'zoneLon',
   'zoneRayon',
   'popMin',
   'popMax',
@@ -37,17 +40,20 @@ export const BRIEF_FIELDS = [
   'criteres',
 ];
 
-// Trajets max proposés (minutes), comme le filtre de la recherche
-export const BRIEF_DRIVE_TIMES = [15, 20, 30, 45, 60];
-
 /** Nettoie la fiche client d'un dossier. */
 export function cleanBrief(b) {
   if (!b || typeof b !== 'object') return null;
   const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
   const num = (v) => (Number.isFinite(v) && v > 0 ? Math.round(v) : null);
-  // Zone de recherche : commune (code INSEE) et rayon en km (1 à 100)
+  // Zone de recherche : commune (code INSEE) ou adresse (coordonnées), et
+  // rayon en km (1 à 100), qui peut être donné seul
   const zoneCode = typeof b.zoneCode === 'string' && /^[0-9][0-9AB][0-9]{3}$/.test(b.zoneCode) ? b.zoneCode : null;
+  const lat = Number(b.zoneLat);
+  const lon = Number(b.zoneLon);
+  const address =
+    !zoneCode && b.zoneLat != null && b.zoneLon != null && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && text(b.zoneNom, 150) !== '';
   const rayon = Number(b.zoneRayon);
+  const trajet = Number(b.trajetMax);
   // Population : bornes facultatives, le minimum ne dépasse pas le maximum
   let popMin = num(b.popMin);
   let popMax = num(b.popMax);
@@ -55,11 +61,13 @@ export function cleanBrief(b) {
   const brief = {
     client: text(b.client, 100),
     zoneCode,
-    zoneNom: zoneCode ? text(b.zoneNom, 100) : '',
-    zoneRayon: zoneCode && Number.isFinite(rayon) && rayon >= 1 && rayon <= 100 ? Math.round(rayon * 10) / 10 : null,
+    zoneNom: zoneCode || address ? text(b.zoneNom, 150) : '',
+    zoneLat: address ? Math.round(lat * 1e5) / 1e5 : null,
+    zoneLon: address ? Math.round(lon * 1e5) / 1e5 : null,
+    zoneRayon: b.zoneRayon != null && Number.isFinite(rayon) && rayon >= 1 && rayon <= 100 ? Math.round(rayon * 10) / 10 : null,
     popMin,
     popMax,
-    trajetMax: BRIEF_DRIVE_TIMES.includes(b.trajetMax) ? b.trajetMax : null,
+    trajetMax: Number.isInteger(trajet) && trajet >= DRIVE.min && trajet <= DRIVE.max ? trajet : null,
     budget: num(b.budget),
     type: b.type === 'appartement' ? 'appartement' : b.type === 'maison' ? 'maison' : null,
     surface: num(b.surface),
@@ -68,6 +76,9 @@ export function cleanBrief(b) {
   };
   return Object.values(brief).some((v) => v) ? brief : null;
 }
+
+/** La fiche a-t-elle une zone (commune ou adresse) ? */
+export const briefHasZone = (b) => Boolean(b?.zoneCode || (b?.zoneLat != null && b?.zoneLon != null));
 export const MAX_FOLDER_NAME = 60;
 
 const isDate = (v) => typeof v === 'string' && !Number.isNaN(Date.parse(v));

@@ -58,7 +58,9 @@ npm run data:all                            # les trois scripts à la suite
 ```
 
 Le site ne contacte jamais ces API pour faire une recherche : seules les
-tuiles de carte sont chargées depuis Internet. La tendance démographique et
+tuiles de carte sont chargées depuis Internet, ainsi que les services gratuits
+de la Géoplateforme IGN quand on les utilise (adresses saisies dans le champ de
+recherche, temps et zones de trajet en voiture). La tendance démographique et
 les prix sont chargés à la demande (ouverture d'une fiche, export, impression).
 
 `communes.json` est stocké en colonnes (codes et coordonnées en écarts

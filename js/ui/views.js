@@ -3,11 +3,12 @@
 
 import { h } from './dom.js';
 import { density, departementLabel, sizeCategoryOf } from '../lib/commune.js';
-import { formatKm, formatNumber, NBSP } from '../lib/text.js';
+import { formatKm, formatMinutes, formatNumber, NBSP } from '../lib/text.js';
 import { populationTrend, priceInfo, trendText } from '../lib/insights.js';
 import { amenityList, amenitySummary } from '../lib/amenities.js';
 import { BUDGET_STATUS_LABELS, formatEuros, PROPERTY_TYPES, priceReliability } from '../lib/budget.js';
 import { STATUSES } from '../lib/favorites.js';
+import { briefHasZone } from '../lib/folders.js';
 import { distanceKm } from '../lib/geo.js';
 import { deName } from '../lib/summary.js';
 
@@ -436,10 +437,10 @@ export function folderCityRow(item, commune, { data, folderId, onOpen, onRemove,
 /** Fiche client affichée en tête d'un dossier */
 /** « 25 km autour de Lille » */
 export function briefZoneText(brief) {
-  if (!brief?.zoneCode) return '';
-  const r = brief.zoneRayon ? `${String(brief.zoneRayon).replace('.', ',')}${NBSP}km` : 'rayon non précisé';
+  const r = brief?.zoneRayon ? `${String(brief.zoneRayon).replace('.', ',')}${NBSP}km` : '';
+  if (!briefHasZone(brief)) return r ? `Rayon de ${r}` : '';
   // « autour de Lille », « autour d’Arras », « autour du Havre »
-  return `${r} autour ${deName(brief.zoneNom || brief.zoneCode)}`;
+  return `${r ? `${r} autour` : 'Autour'} ${deName(brief.zoneNom || brief.zoneCode)}`;
 }
 
 /** « 5 000 à 20 000 habitants », « plus de 5 000 habitants »… */
@@ -455,7 +456,7 @@ export function briefPopulationText(brief) {
 export function briefDriveText(brief) {
   const m = brief?.trajetMax;
   if (!m) return '';
-  return `${m >= 60 ? `${m / 60}${NBSP}h` : `${m}${NBSP}min`} max en voiture${brief.zoneCode ? ` depuis ${brief.zoneNom || brief.zoneCode}` : ''}`;
+  return `${formatMinutes(m)} max en voiture${briefHasZone(brief) ? ` depuis ${brief.zoneNom || brief.zoneCode}` : ''}`;
 }
 
 export function briefCard(brief) {
@@ -602,39 +603,80 @@ export function printContent({ appName, summary, results, data, pointNames, insi
   ];
 }
 
-/** Plan schématique (SVG) : points de départ, cercles et communes numérotées. */
-function schematicMap(points, towns) {
+// Fond du plan du rapport : Plan IGN (tuiles Web Mercator de la Géoplateforme)
+const REPORT_TILES =
+  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
+  '&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}';
+const EARTH_KM = 40075.017;
+
+// Web Mercator au zoom 0 (monde de 256 × 256 px)
+const mercX = (lon) => ((lon + 180) / 360) * 256;
+const mercY = (lat) => {
+  const phi = (lat * Math.PI) / 180;
+  return (1 - Math.log(Math.tan(phi) + 1 / Math.cos(phi)) / Math.PI) * 128;
+};
+
+/**
+ * Plan du rapport : fond de carte IGN, cercles de recherche et communes
+ * numérotées. Les tuiles sont des <img> : elles s'impriment même sans les
+ * arrière-plans (attendre leur chargement avant d'imprimer).
+ */
+function reportMap(points, towns) {
   const ns = 'http://www.w3.org/2000/svg';
   const W = 640;
   const H = 360;
-  const all = [...points, ...towns];
-  if (!all.length) return null;
-  const lat0 = all.reduce((s, p) => s + p.lat, 0) / all.length;
-  const kx = Math.cos((lat0 * Math.PI) / 180);
+  const PAD = 28;
+  if (!points.length && !towns.length) return null;
   // Étendue : communes et cercles de recherche
   const xs = [];
   const ys = [];
-  for (const p of towns) {
-    xs.push(p.lon * kx);
-    ys.push(p.lat);
+  for (const t of towns) {
+    xs.push(mercX(t.lon));
+    ys.push(mercY(t.lat));
   }
   for (const p of points) {
     const dLat = p.radius / 111.195;
-    xs.push((p.lon - dLat / kx) * kx, (p.lon + dLat / kx) * kx);
-    ys.push(p.lat - dLat, p.lat + dLat);
+    const dLon = dLat / Math.cos((p.lat * Math.PI) / 180);
+    xs.push(mercX(p.lon - dLon), mercX(p.lon + dLon));
+    ys.push(mercY(p.lat + dLat), mercY(p.lat - dLat));
   }
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const scale = Math.min((W - 40) / (maxX - minX || 0.01), (H - 40) / (maxY - minY || 0.01));
-  const px = (lon) => 20 + (lon * kx - minX) * scale + ((W - 40) - (maxX - minX) * scale) / 2;
-  const py = (lat) => 20 + (maxY - lat) * scale + ((H - 40) - (maxY - minY) * scale) / 2;
+  // Unités du plan par pixel du monde au zoom 0 (au plus le zoom 14)
+  const scale = Math.min((W - 2 * PAD) / (maxX - minX || 1e-9), (H - 2 * PAD) / (maxY - minY || 1e-9), 2 ** 14);
+  const x0 = (minX + maxX) / 2 - W / 2 / scale;
+  const y0 = (minY + maxY) / 2 - H / 2 / scale;
+  const px = (lon) => (mercX(lon) - x0) * scale;
+  const py = (lat) => (mercY(lat) - y0) * scale;
+
+  const box = h('div', { class: 'report-map' });
+  // Tuiles au zoom le plus proche de l'échelle du plan
+  const z = Math.max(0, Math.min(17, Math.round(Math.log2(scale))));
+  const n = 2 ** z;
+  const tile = (256 / n) * scale;
+  const pct = (v, total) => `${((v / total) * 100).toFixed(3)}%`;
+  for (let ty = Math.max(0, Math.floor((y0 * n) / 256)); ty <= Math.min(n - 1, Math.floor(((y0 + H / scale) * n) / 256)); ty++) {
+    for (let tx = Math.floor((x0 * n) / 256); tx <= Math.floor(((x0 + W / scale) * n) / 256); tx++) {
+      const img = h('img', {
+        class: 'report-tile',
+        alt: '',
+        src: REPORT_TILES.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty),
+      });
+      // Léger recouvrement : pas de joint visible entre les tuiles
+      img.style.left = pct((tx * 256) / n * scale - x0 * scale, W);
+      img.style.top = pct((ty * 256) / n * scale - y0 * scale, H);
+      img.style.width = pct(tile + 0.6, W);
+      img.style.height = pct(tile + 0.6, H);
+      box.append(img);
+    }
+  }
+
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  svg.setAttribute('class', 'report-map');
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Plan schématique des communes retenues');
+  svg.setAttribute('aria-label', 'Plan de la zone et des communes retenues');
   const el = (tag, attrs, text) => {
     const e = document.createElementNS(ns, tag);
     for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
@@ -642,18 +684,20 @@ function schematicMap(points, towns) {
     svg.append(e);
     return e;
   };
-  el('rect', { x: 0, y: 0, width: W, height: H, fill: '#f7f8fa', stroke: '#999', 'stroke-width': 0.5 });
+  const halo = { stroke: '#fff', 'stroke-width': 3, 'stroke-linejoin': 'round', 'paint-order': 'stroke' };
   for (const p of points) {
-    el('circle', { cx: px(p.lon), cy: py(p.lat), r: (p.radius / 111.195) * scale, fill: 'none', stroke: '#1d4ed8', 'stroke-dasharray': '6 4' });
-    el('circle', { cx: px(p.lon), cy: py(p.lat), r: 5, fill: '#1d4ed8' });
-    el('text', { x: px(p.lon) + 8, y: py(p.lat) - 8, 'font-size': 12, 'font-weight': 700, fill: '#1d4ed8' }, p.name);
+    const r = (p.radius / ((EARTH_KM * Math.cos((p.lat * Math.PI) / 180)) / 256)) * scale;
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r, fill: 'rgba(29, 78, 216, 0.08)', stroke: '#1d4ed8', 'stroke-width': 2, 'stroke-dasharray': '7 4' });
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r: 5, fill: '#1d4ed8', stroke: '#fff', 'stroke-width': 1.5 });
+    el('text', { x: px(p.lon) + 8, y: py(p.lat) - 8, 'font-size': 12, 'font-weight': 700, fill: '#1d4ed8', ...halo }, p.name);
   }
   towns.forEach((t, i) => {
     el('circle', { cx: px(t.lon), cy: py(t.lat), r: 9, fill: '#111', stroke: '#fff', 'stroke-width': 1.5 });
     el('text', { x: px(t.lon), y: py(t.lat) + 4, 'font-size': 10, 'font-weight': 700, fill: '#fff', 'text-anchor': 'middle' }, String(i + 1));
-    el('text', { x: px(t.lon) + 12, y: py(t.lat) + 4, 'font-size': 11, fill: '#111' }, t.nom);
+    el('text', { x: px(t.lon) + 12, y: py(t.lat) + 4, 'font-size': 11, 'font-weight': 600, fill: '#111', ...halo }, t.nom);
   });
-  return svg;
+  box.append(svg, h('span', { class: 'report-map-credit' }, '© IGN – Plan IGN'));
+  return box;
 }
 
 /**
@@ -710,7 +754,7 @@ export function clientReportContent({ appName, folder, towns, excluded, points, 
         ['Critères', brief.criteres],
       ].filter(([, v]) => v)
     : [];
-  const map = schematicMap(points, towns.map((t) => t.commune));
+  const map = reportMap(points, towns.map((t) => t.commune));
   return [
     h('h1', {}, `${appName} — Dossier de recherche`),
     h('p', { class: 'print-summary' }, `${brief?.client || folder.nom} · préparé le ${date}`),

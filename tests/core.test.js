@@ -170,3 +170,16 @@ test('noms sur la carte : évitent les obstacles', async () => {
   const obstacles = [{ left: 110, top: 92, width: 52, height: 20 }];
   assert.equal(placeLabels(items, { width: 800, height: 600, obstacles }).length, 0);
 });
+
+test('trajet max : saisie libre en minutes', async () => {
+  const { formatMinutes, parseMinutesInput } = await import('../js/lib/text.js');
+  assert.equal(parseMinutesInput('25'), 25);
+  assert.equal(parseMinutesInput(' 45 min '), 45);
+  assert.equal(parseMinutesInput('1h30'), 90);
+  assert.equal(parseMinutesInput('1 h'), 60);
+  assert.equal(parseMinutesInput(''), null);
+  assert.equal(parseMinutesInput('vingt'), null);
+  assert.equal(formatMinutes(25), '25 min');
+  assert.equal(formatMinutes(60), '1 h');
+  assert.equal(formatMinutes(95), '1 h 35');
+});

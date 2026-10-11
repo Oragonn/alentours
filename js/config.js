@@ -16,6 +16,9 @@ export const UNKNOWN_CATEGORY = { id: 'inconnue', label: 'Inconnue' };
 
 export const RADIUS = { min: 1, max: 100, step: 1, default: 20 };
 
+// Trajet max en voiture saisi librement (minutes)
+export const DRIVE = { min: 5, max: 120 };
+
 // Cercles de distance : l'écart s'adapte au rayon pour en avoir environ
 // RINGS.target, choisi parmi des valeurs rondes (km).
 export const RINGS = { steps: [1, 2, 5, 10, 20, 25], target: 4 };

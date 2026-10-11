@@ -122,7 +122,9 @@ test('fiche client : zone de recherche (ville + rayon)', async () => {
   const { cleanBrief } = await import('../js/lib/folders.js');
   const b = cleanBrief({ client: 'Martin', zoneCode: '59350', zoneNom: 'Lille', zoneRayon: 25 });
   assert.deepEqual([b.zoneCode, b.zoneNom, b.zoneRayon], ['59350', 'Lille', 25]);
-  assert.equal(cleanBrief({ zoneCode: 'abc', zoneNom: 'X', zoneRayon: 10 }), null, 'code invalide : rien à garder');
+  const bad = cleanBrief({ zoneCode: 'abc', zoneNom: 'X', zoneRayon: 10 });
+  assert.deepEqual([bad.zoneCode, bad.zoneNom, bad.zoneRayon], [null, '', 10], 'code invalide : seul le rayon reste');
+  assert.equal(cleanBrief({ zoneCode: 'abc', zoneNom: 'X' }), null, 'code invalide : rien à garder');
   assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 500 }).zoneRayon, null);
   assert.equal(cleanBrief({ client: 'A', zoneCode: '59350', zoneRayon: 12.34 }).zoneRayon, 12.3);
   assert.equal(cleanBrief({ client: 'A', zoneNom: 'Lille' }).zoneNom, '', 'nom sans code ignoré');
@@ -137,11 +139,37 @@ test('fiche client : population et trajet max', async () => {
   assert.equal(b.trajetMax, 30);
   const swapped = cleanBrief({ popMin: 9000, popMax: 1000 });
   assert.deepEqual([swapped.popMin, swapped.popMax], [1000, 9000], 'bornes inversées');
-  assert.equal(cleanBrief({ client: 'A', trajetMax: 25 }).trajetMax, null, 'durée hors liste');
+  assert.equal(cleanBrief({ client: 'A', trajetMax: 25 }).trajetMax, 25, 'durée libre');
+  assert.equal(cleanBrief({ client: 'A', trajetMax: 500 }).trajetMax, null, 'durée hors limites');
   assert.equal(cleanBrief({ popMin: -5 }), null);
   assert.equal(briefPopulationText(b), '2 000 à 20 000 habitants');
   assert.equal(briefPopulationText({ popMax: 500 }), '500 habitants ou moins');
   assert.equal(briefDriveText(b), '30 min max en voiture depuis Lille');
   assert.equal(briefDriveText({ trajetMax: 60 }), '1 h max en voiture');
+  assert.equal(briefDriveText({ trajetMax: 90 }), '1 h 30 max en voiture');
   assert.equal(briefDriveText({}), '');
+});
+
+test('fiche client : zone sur une adresse, rayon seul', async () => {
+  const { briefHasZone, cleanBrief } = await import('../js/lib/folders.js');
+  const { briefZoneText } = await import('../js/ui/views.js');
+  const b = cleanBrief({ zoneNom: '12 Rue de Vesle 51100 Reims', zoneLat: 49.2526354, zoneLon: 4.0265371, zoneRayon: 15 });
+  assert.deepEqual([b.zoneCode, b.zoneLat, b.zoneLon], [null, 49.25264, 4.02654]);
+  assert.ok(briefHasZone(b));
+  assert.equal(briefZoneText(b), '15 km autour de 12 Rue de Vesle 51100 Reims');
+  assert.equal(cleanBrief({ zoneLat: 49, zoneLon: 4 }), null, 'adresse sans nom ignorée');
+  const r = cleanBrief({ zoneRayon: 30 });
+  assert.ok(!briefHasZone(r));
+  assert.equal(briefZoneText(r), 'Rayon de 30 km');
+});
+
+test('géocodage : saisies qui ressemblent à une adresse', async () => {
+  const { looksLikeAddress } = await import('../js/geocode.js');
+  assert.ok(looksLikeAddress('12 rue de Vesle'));
+  assert.ok(looksLikeAddress('chemin des Vignes'));
+  assert.ok(looksLikeAddress('Allées Jean Jaurès'));
+  assert.ok(looksLikeAddress('la Grange aux Bois', false), 'aucune commune trouvée');
+  assert.ok(!looksLikeAddress('Lille'));
+  assert.ok(!looksLikeAddress('Saint Brice'));
+  assert.ok(!looksLikeAddress('59000'));
 });

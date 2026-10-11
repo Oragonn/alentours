@@ -83,3 +83,22 @@ export function slugify(text) {
 export function formatCoords(lat, lon) {
   return `${formatDecimalPlain(lat, 4)} ; ${formatDecimalPlain(lon, 4)}`;
 }
+
+/** Durée de trajet max : « 45 min », « 1 h », « 1 h 30 ». */
+export function formatMinutes(minutes) {
+  const m = Math.round(minutes);
+  if (m < 60) return `${m}${NBSP}min`;
+  const rest = m % 60;
+  return `${Math.floor(m / 60)}${NBSP}h${rest ? ` ${String(rest).padStart(2, '0')}` : ''}`;
+}
+
+/** Saisie « 45 », « 45 min », « 1h30 », « 1 h » → minutes (null si illisible). */
+export function parseMinutesInput(text) {
+  const t = String(text ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  if (!t) return null;
+  let m = /^(\d{1,3})(?:mn|min|minutes?)?$/.exec(t);
+  if (m) return Number(m[1]);
+  m = /^(\d{1,2})h(?:(\d{1,2})(?:mn|min)?)?$/.exec(t);
+  if (m) return Number(m[1]) * 60 + Number(m[2] ?? 0);
+  return null;
+}

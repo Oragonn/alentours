@@ -150,6 +150,24 @@ test('URL : budget et trajet maximal', () => {
   const q = encodeSearch(state);
   assert.equal(q, '?c=59350&r=25&budget=300000&bien=maison&surf=110&dansbudget=1&trajet=30');
   assert.deepEqual(decodeSearch(q), state);
-  assert.deepEqual(decodeSearch('?c=59350&r=25&budget=abc&trajet=17&bien=chateau'), { points: [{ code: '59350', radius: 25 }] });
+  assert.deepEqual(decodeSearch('?c=59350&r=25&budget=abc&trajet=500&bien=chateau'), { points: [{ code: '59350', radius: 25 }] });
+  assert.equal(decodeSearch('?c=59350&trajet=17').driveMax, 17, 'durée libre');
+  assert.equal(decodeSearch('?c=59350&trajet=2').driveMax, undefined, 'trop court');
   assert.deepEqual(decodeSearch('?budget=250000&bien=appartement').budget, { budget: 250000, type: 'appartement', surface: null });
+});
+
+test('URL : point sur une adresse (nom gardé)', () => {
+  const one = { points: [{ lat: 49.25264, lon: 4.02654, radius: 10, name: '12 Rue de Vesle 51100 Reims' }] };
+  const q = encodeSearch(one);
+  assert.equal(q, '?lat=49.25264&lon=4.02654&r=10&n=12%20Rue%20de%20Vesle%2051100%20Reims');
+  assert.deepEqual(decodeSearch(q), one);
+  const two = {
+    points: [
+      { code: '59350', radius: 20 },
+      { lat: 49.25264, lon: 4.02654, radius: 10, name: 'Rue de Vesle, Reims' },
+    ],
+  };
+  const q2 = encodeSearch(two);
+  assert.equal(q2, '?pt=59350,20&pt=49.25264,4.02654,10,Rue%20de%20Vesle%2C%20Reims');
+  assert.deepEqual(decodeSearch(q2), two);
 });
