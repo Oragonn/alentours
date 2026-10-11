@@ -120,6 +120,7 @@ const state = {
   driveMax: null,
   driveZones: null,
   driveError: null,
+  driveFailedKey: null,
   pickerCode: null,
   compare: new Set(),
   selected: null,
@@ -526,7 +527,6 @@ function showPoint(p) {
   if (clear) clear.hidden = false;
   closeDetails();
   runSearch({ fit: true });
-  ensureInsights();
 }
 
 /** Retire le point de départ (champ vidé ou bouton ✕). */
@@ -573,6 +573,8 @@ function handleMapClick() {
 
 // ---- Recherche -----------------------------------------------------------
 
+let searchAwaitsInsights = false;
+
 function runSearch({ fit = false } = {}) {
   if (!data) return;
   const points = setPoints();
@@ -594,8 +596,13 @@ function runSearch({ fit = false } = {}) {
   if (zones) filtered = filtered.filter((r) => zones.every((g) => communeInZone(r.commune, g)));
   // Budget : il faut les prix DVF
   const budgetActive = budgetIsSet(state.budget);
-  if ((budgetActive || state.sort.key === 'prix') && !insights.prices && !insights.pricesLoaded) {
-    ensureInsights().then(() => runSearch());
+  if ((budgetActive || state.sort.key === 'prix') && !insights.pricesLoaded && !searchAwaitsInsights) {
+    // Une seule relance quand les prix arrivent, même après plusieurs recherches
+    searchAwaitsInsights = true;
+    ensureInsights().then(() => {
+      searchAwaitsInsights = false;
+      runSearch();
+    });
   }
   if (budgetActive && state.budgetOnly && insights.prices) {
     filtered = filtered.filter((r) => ['ok', 'limite'].includes(budgetFor(r.commune)?.status));
@@ -917,10 +924,13 @@ const driveZonesReady = () => Boolean(state.driveZones && state.driveZones.key =
 
 function ensureDriveZones() {
   const key = driveKey();
-  if (!key || driveZonesReady() || driveRequest?.key === key) return;
+  // Échec pour ces points et cette durée : pas de nouvel essai en boucle (le
+  // service est rappelé dès qu'un point ou la durée change)
+  if (!key || driveZonesReady() || driveRequest?.key === key || state.driveFailedKey === key) return;
   const req = { key };
   driveRequest = req;
   state.driveError = null;
+  state.driveFailedKey = null;
   Promise.all(setPoints().map((p) => isochrone(p, state.driveMax)))
     .then((geoms) => {
       if (driveRequest !== req) return;
@@ -932,6 +942,7 @@ function ensureDriveZones() {
       if (driveRequest !== req) return;
       driveRequest = null;
       state.driveZones = null;
+      state.driveFailedKey = key;
       state.driveError = 'Zone de trajet indisponible (service IGN). Réessayez plus tard.';
       runSearch();
     });
@@ -2003,33 +2014,21 @@ function clientReport(folder) {
 
 // ---- Plan du rapport client ---------------------------------------------------
 
-// Même carte que l'application (fond, thème, points colorés, noms, épingle),
-// figée, avec les communes du dossier numérotées comme dans le rapport. Gardée
-// tant que rien ne change : l'impression (Ctrl+P compris) la réutilise.
+// Même carte que l'application (fond, thème, épingle, cercle), figée, avec
+// seulement les communes du dossier : point coloré comme sur la carte (budget
+// ou taille) et numéro du rapport. Gardée tant que rien ne change :
+// l'impression (Ctrl+P compris) la réutilise.
 // Taille sur la page (px) ; la carte est dessinée `zoom` fois plus grande puis
 // réduite : zoom plus proche, plus de routes et de noms, comme sur un grand écran
 const REPORT_MAP = { width: 700, height: 440, zoom: 1.6 };
 let reportMapCache = null;
 
-/** Communes de la zone du rapport : celle de la fiche, sinon la recherche en cours. */
-function reportZoneResults(folder, pts) {
-  const b = folder.fiche;
-  if (!briefZonePoint(b)) return results;
-  return searchArea(data.communes, {
-    points: pts.map(({ lat, lon, radius }) => ({ lat, lon, radius })),
-    popMin: b.popMin ?? null,
-    popMax: b.popMax ?? null,
-  });
-}
-
 function reportMap(folder, pts) {
   const towns = reportTowns(folder).map((c) => data.byCode.get(c.code));
-  const zone = reportZoneResults(folder, pts);
   const hasBudget = Boolean(insights.prices && ((folder.fiche?.budget && folder.fiche?.surface) || budgetIsSet(state.budget)));
   const key = JSON.stringify([
     pts.map((p) => [p.lat, p.lon, p.radius]),
     towns.map((c) => c.code),
-    zone.length,
     hasBudget,
     effectiveTheme(),
     mapView.style,
@@ -2059,17 +2058,17 @@ function reportMap(folder, pts) {
     view.updateBaseLayer();
   }
   view.fitArea(pts, towns, 14 * zoom);
-  const inZone = new Set(zone.map((r) => r.commune.code));
+  const inFolder = new Set(towns.map((c) => c.code));
   view.render({
     points: pts.map((p) => ({
       lat: p.lat,
       lon: p.lon,
       radius: p.radius,
-      isCommune: Boolean(p.commune && inZone.has(p.commune.code)),
+      isCommune: Boolean(p.commune && inFolder.has(p.commune.code)),
       population: p.commune?.population ?? null,
     })),
     colors: pts.map((_, i) => pointColor(i)),
-    results: [...zone, ...towns.filter((c) => !inZone.has(c.code)).map((commune) => ({ commune }))],
+    results: towns.map((commune) => ({ commune })),
     names: pts.map(pointShortName),
     favorites: new Set(),
     colorOf: hasBudget

@@ -55,6 +55,10 @@ export function assetsBlock() {
     `  <link rel="stylesheet" href="${v('css/style.css')}">`,
     `  <script type="importmap">${JSON.stringify({ imports })}</script>`,
     `  <script type="application/json" id="asset-versions">${JSON.stringify(data)}</script>`,
+    // Données indispensables : téléchargées pendant le chargement du code
+    ...['data/communes.json', 'data/departements.json', 'data/regions.json'].map(
+      (f) => `  <link rel="preload" href="${f}?v=${data[f]}" as="fetch" crossorigin>`
+    ),
     ...modules.map((f) => `  <link rel="modulepreload" href="${v(f)}">`),
     `  ${END}`,
   ].join('\n');

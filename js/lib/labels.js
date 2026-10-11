@@ -32,14 +32,12 @@ export function placeLabels(items, { width, height, maxCount = 250, charWidth = 
       height: lineHeight,
     };
     if (box.left + box.width < 0 || box.left > width || box.top + box.height < 0 || box.top > height) continue;
-    const overlaps = [...blocked, ...placed].some(
-      (p) =>
-        box.left < p.box.left + p.box.width + gap &&
-        p.box.left < box.left + box.width + gap &&
-        box.top < p.box.top + p.box.height &&
-        p.box.top < box.top + box.height
-    );
-    if (!overlaps) placed.push({ ...it, box });
+    const hits = (p) =>
+      box.left < p.box.left + p.box.width + gap &&
+      p.box.left < box.left + box.width + gap &&
+      box.top < p.box.top + p.box.height &&
+      p.box.top < box.top + box.height;
+    if (!blocked.some(hits) && !placed.some(hits)) placed.push({ ...it, box });
   }
   return placed;
 }

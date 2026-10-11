@@ -1447,6 +1447,8 @@ body > .report-map-offscreen {
   border: calc(2px * var(--map-k, 1)) solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   font: 700 calc(11px * var(--map-k, 1)) / 1 system-ui, sans-serif;
+  /* Lisible sur toutes les couleurs de point (vert, orange, cyan…) */
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.75), 0 0 1px rgba(0, 0, 0, 0.9);
 }
 
 /* Carte du rapport dessinée en grand (plus de détails), réduite à la page */

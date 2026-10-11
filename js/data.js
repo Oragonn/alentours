@@ -57,14 +57,16 @@ export async function loadInsights() {
     const { meta, fields, data } = prices.value;
     insights.pricesMeta = meta ?? {};
     // Ligne : [prixMaison, ventesMaison, prixAppartement, ventesAppartement]
+    const [pm, vm, pa, va] = ['prixMaison', 'ventesMaison', 'prixAppartement', 'ventesAppartement'].map((name) =>
+      fields.indexOf(name)
+    );
     insights.prices = {
       get(code) {
         const row = data[code];
         if (!row) return null;
-        const at = (name) => row[fields.indexOf(name)];
         return {
-          maison: { prix: at('prixMaison'), ventes: at('ventesMaison') },
-          appartement: { prix: at('prixAppartement'), ventes: at('ventesAppartement') },
+          maison: { prix: row[pm], ventes: row[vm] },
+          appartement: { prix: row[pa], ventes: row[va] },
         };
       },
     };

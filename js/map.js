@@ -427,6 +427,15 @@ export class MapView {
   }
 
   drawResults(results) {
+    // Mêmes communes (tri, favoris, budget changés) : on recolore seulement,
+    // sans recréer des milliers de points ni replacer les noms
+    const key = results.map((r) => r.commune.code).sort().join(',');
+    if (key === this.resultsKey && this.markers.size === results.length) {
+      this.results = results;
+      this.restyleMarkers();
+      return;
+    }
+    this.resultsKey = key;
     this.results = results;
     this.resultsLayer.clearLayers();
     this.markers.clear();
@@ -521,8 +530,12 @@ export class MapView {
       const m = this.markers.get(commune.code);
       if (!m) continue;
       const style = this.markerStyle(commune, colors);
-      m.setRadius(style.radius);
-      m.setStyle(style);
+      // Seuls les points qui changent sont redessinés
+      const o = m.options;
+      if (o.radius !== style.radius) m.setRadius(style.radius);
+      if (o.color !== style.color || o.weight !== style.weight || o.fillColor !== style.fillColor || o.fillOpacity !== style.fillOpacity) {
+        m.setStyle(style);
+      }
     }
     if (this.highlighted) this.highlight(this.highlighted);
   }
@@ -604,21 +617,29 @@ export class MapView {
     if (!this.map.hasLayer(this.favoritesLayer)) this.favoritesLayer.addTo(this.map);
   }
 
-  /** Communes numérotées 1, 2, 3… (plan du rapport client), nommées en priorité. */
+  /**
+   * Communes numérotées 1, 2, 3… (plan du rapport client), nommées en
+   * priorité ; le numéro prend la couleur de leur point (budget ou taille).
+   */
   showNumbered(communes) {
     this.numbersLayer.clearLayers();
     this.priorityCodes = new Set(communes.map((c) => c.code));
+    const colors = this.categoryColors();
     communes.forEach((c, i) => {
+      const span = document.createElement('span');
+      span.textContent = String(i + 1);
+      span.style.background = this.markerStyle(c, colors).fillColor;
       L.marker([c.lat, c.lon], {
         icon: L.divIcon({
           className: 'number-marker',
-          html: `<span>${i + 1}</span>`,
+          html: span,
           iconSize: [22 * this.k, 22 * this.k],
           iconAnchor: [11 * this.k, 11 * this.k],
         }),
         keyboard: false,
         interactive: false,
-        zIndexOffset: 800,
+        // Au-dessus de l'épingle du départ (1000) : aucun numéro caché
+        zIndexOffset: 1200,
       }).addTo(this.numbersLayer);
     });
     this.updateLabels();
