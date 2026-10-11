@@ -183,6 +183,17 @@ export class MapView {
     }
   }
 
+  /**
+   * Fond de carte affiché (Plan clair ou sombre, Satellite) : modèle d'URL des
+   * tuiles, classe CSS (filtre du mode sombre) et attribution en texte.
+   */
+  baseTiles() {
+    const key = this.baseKey ?? 'planLight';
+    const { url, options } = TILES[key];
+    const credit = key.startsWith('plan') ? 'OpenStreetMap' : key === 'satellite' ? 'IGN' : 'Esri, Maxar';
+    return { url, className: options.className ?? '', dark: key === 'planDark', credit: `© ${credit}` };
+  }
+
   /** Promesse résolue quand les tuiles visibles sont chargées (ou après `timeout` ms). */
   whenTilesLoaded(timeout = 4000) {
     return new Promise((resolve) => {

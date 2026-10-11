@@ -1434,11 +1434,18 @@ li.selected .result {
     border: 0.5pt solid #999;
     background: #f2efe9;
     break-inside: avoid;
+    /* Fond sombre et filtre du mode sombre imprimés tels quels */
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
   }
 
   .report-map .report-tile {
     position: absolute;
     max-width: none;
+  }
+
+  .report-map-dark {
+    background: #1f2328;
   }
 
   .report-map svg {

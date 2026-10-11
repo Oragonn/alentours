@@ -1411,62 +1411,50 @@ els.briefForm.addEventListener('submit', (e) => {
   closeBriefForm();
 });
 
-// Seuls les champs remplis dans la fiche changent la recherche : un trajet max
-// réglé dans la recherche reste en place si la fiche n'en indique pas.
+// La fiche remplace les filtres de la recherche : un champ vide dans la fiche
+// efface le filtre (un trajet max de la recherche ne reste pas en place).
 els.briefApply.addEventListener('click', () => {
   const b = findFolder(folders, state.openFolder)?.fiche;
-  const zone = briefZonePoint(b);
-  const hasRayon = Boolean(b?.zoneRayon);
-  const hasPop = Boolean(b?.popMin || b?.popMax);
-  const hasDrive = Boolean(b?.trajetMax);
-  const hasBudget = Boolean(b?.budget || b?.surface || b?.type);
-  if (!zone && !hasRayon && !hasPop && !hasDrive && !hasBudget) {
-    flash(
-      els.folderFeedback,
-      'Indiquez une ville ou une adresse, un rayon, une population, un trajet max ou un budget dans la fiche client.',
-      true
-    );
+  if (!b) {
+    flash(els.folderFeedback, 'Remplissez d’abord la fiche client.', true);
     return;
   }
-  const radius = hasRayon ? b.zoneRayon : state.points[state.active]?.radius ?? RADIUS.default;
-  const km = `${String(radius).replace('.', ',')} km`;
+  const zone = briefZonePoint(b);
+  if (!zone && !setPoints().length) {
+    flash(els.folderFeedback, 'Indiquez une ville ou une adresse dans la fiche client, ou choisissez un point de départ.', true);
+    return;
+  }
+  // Zone : celle de la fiche, sinon les points de départ actuels
   if (zone) {
-    // La zone de la fiche remplace les points de départ de la recherche
-    state.points = [Object.assign(newPoint(radius), zone)];
+    state.points = [Object.assign(newPoint(b.zoneRayon ?? RADIUS.default), zone)];
     state.active = 0;
-    renderPoints();
-  } else if (hasRayon) {
-    for (const p of state.points) p.radius = radius;
-    renderPoints();
+  } else if (b.zoneRayon) {
+    for (const p of state.points) p.radius = b.zoneRayon;
   }
-  if (hasPop) {
-    if (b.popMin) els.popMin.value = formatNumber(b.popMin);
-    if (b.popMax) els.popMax.value = formatNumber(b.popMax);
-    readPopulation();
-  }
-  if (hasDrive) {
-    state.driveMax = b.trajetMax;
-    setDriveInput(b.trajetMax);
-  }
-  if (hasBudget) {
-    setBudgetInputs({
-      budget: b.budget ?? parseIntegerInput(els.budgetAmount.value),
-      surface: b.surface ?? parseIntegerInput(els.budgetSurface.value),
-      type: b.type ?? els.budgetType.value,
-    });
-    els.budgetBox.open = true;
-  }
+  renderPoints();
+  els.popMin.value = b.popMin ? formatNumber(b.popMin) : '';
+  els.popMax.value = b.popMax ? formatNumber(b.popMax) : '';
+  readPopulation();
+  state.driveMax = b.trajetMax ?? null;
+  setDriveInput(state.driveMax);
+  els.budgetOnly.checked = false;
+  setBudgetInputs({ budget: b.budget, surface: b.surface, type: b.type ?? 'maison' });
+  els.budgetBox.open = Boolean(b.budget || b.surface);
+  state.regions = [];
+  state.departements = [];
   setView('results');
-  runSearch({ fit: Boolean(zone || hasRayon) });
+  runSearch({ fit: true });
   ensureInsights();
   if (sheet.isMobile()) sheet.setState('half');
+  const radius = setPoints()[0]?.radius ?? RADIUS.default;
+  const km = `${String(radius).replace('.', ',')} km`;
   const what = listJoin([
-    zone ? `${km} autour ${deName(zone.name)}` : hasRayon ? `rayon de ${km}` : '',
-    hasPop ? 'population' : '',
-    hasDrive ? `trajet max ${formatMinutes(b.trajetMax)}` : '',
-    hasBudget ? 'budget' : '',
+    zone ? `${km} autour ${deName(zone.name)}` : `rayon de ${km}`,
+    b.popMin || b.popMax ? 'population' : '',
+    b.trajetMax ? `trajet max ${formatMinutes(b.trajetMax)}` : '',
+    b.budget ? 'budget' : '',
   ]);
-  flash(els.feedback, `Fiche de ${b.client || 'ce dossier'} appliquée : ${what}`);
+  flash(els.feedback, `Fiche de ${b.client || 'ce dossier'} appliquée : ${what}. Les autres filtres sont effacés.`);
 });
 
 // Itinéraire de visite (Google Maps)
@@ -2009,6 +1997,7 @@ function clientReport(folder) {
     insights,
     summary: reportSummary(folder, pts),
     comparison,
+    tiles: mapView.baseTiles(),
   });
 }
 

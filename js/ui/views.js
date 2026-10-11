@@ -603,10 +603,6 @@ export function printContent({ appName, summary, results, data, pointNames, insi
   ];
 }
 
-// Fond du plan du rapport : Plan IGN (tuiles Web Mercator de la Géoplateforme)
-const REPORT_TILES =
-  'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2' +
-  '&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}';
 const EARTH_KM = 40075.017;
 
 // Web Mercator au zoom 0 (monde de 256 × 256 px)
@@ -617,11 +613,12 @@ const mercY = (lat) => {
 };
 
 /**
- * Plan du rapport : fond de carte IGN, cercles de recherche et communes
- * numérotées. Les tuiles sont des <img> : elles s'impriment même sans les
- * arrière-plans (attendre leur chargement avant d'imprimer).
+ * Plan du rapport : même fond que la carte (Plan clair ou sombre, Satellite),
+ * cercles de recherche et communes numérotées. Les tuiles sont des <img> :
+ * elles s'impriment même sans les arrière-plans (attendre leur chargement).
+ * tiles : { url, className, dark, credit } (MapView.baseTiles())
  */
-function reportMap(points, towns) {
+function reportMap(points, towns, tiles) {
   const ns = 'http://www.w3.org/2000/svg';
   const W = 640;
   const H = 360;
@@ -651,7 +648,7 @@ function reportMap(points, towns) {
   const px = (lon) => (mercX(lon) - x0) * scale;
   const py = (lat) => (mercY(lat) - y0) * scale;
 
-  const box = h('div', { class: 'report-map' });
+  const box = h('div', { class: `report-map${tiles.dark ? ' report-map-dark' : ''}` });
   // Tuiles au zoom le plus proche de l'échelle du plan
   const z = Math.max(0, Math.min(17, Math.round(Math.log2(scale))));
   const n = 2 ** z;
@@ -660,9 +657,9 @@ function reportMap(points, towns) {
   for (let ty = Math.max(0, Math.floor((y0 * n) / 256)); ty <= Math.min(n - 1, Math.floor(((y0 + H / scale) * n) / 256)); ty++) {
     for (let tx = Math.floor((x0 * n) / 256); tx <= Math.floor(((x0 + W / scale) * n) / 256); tx++) {
       const img = h('img', {
-        class: 'report-tile',
+        class: `report-tile ${tiles.className}`.trim(),
         alt: '',
-        src: REPORT_TILES.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty),
+        src: tiles.url.replace('{z}', z).replace('{x}', ((tx % n) + n) % n).replace('{y}', ty),
       });
       // Léger recouvrement : pas de joint visible entre les tuiles
       img.style.left = pct((tx * 256) / n * scale - x0 * scale, W);
@@ -684,19 +681,23 @@ function reportMap(points, towns) {
     svg.append(e);
     return e;
   };
-  const halo = { stroke: '#fff', 'stroke-width': 3, 'stroke-linejoin': 'round', 'paint-order': 'stroke' };
+  // Couleurs lisibles sur le fond choisi (comme les noms de la carte)
+  const ink = tiles.dark ? '#f5f5f5' : '#111';
+  const paper = tiles.dark ? '#111' : '#fff';
+  const blue = tiles.dark ? '#60a5fa' : '#1d4ed8';
+  const halo = { stroke: paper, 'stroke-width': 3, 'stroke-linejoin': 'round', 'paint-order': 'stroke' };
   for (const p of points) {
     const r = (p.radius / ((EARTH_KM * Math.cos((p.lat * Math.PI) / 180)) / 256)) * scale;
-    el('circle', { cx: px(p.lon), cy: py(p.lat), r, fill: 'rgba(29, 78, 216, 0.08)', stroke: '#1d4ed8', 'stroke-width': 2, 'stroke-dasharray': '7 4' });
-    el('circle', { cx: px(p.lon), cy: py(p.lat), r: 5, fill: '#1d4ed8', stroke: '#fff', 'stroke-width': 1.5 });
-    el('text', { x: px(p.lon) + 8, y: py(p.lat) - 8, 'font-size': 12, 'font-weight': 700, fill: '#1d4ed8', ...halo }, p.name);
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r, fill: blue, 'fill-opacity': 0.1, stroke: blue, 'stroke-width': 2, 'stroke-dasharray': '7 4' });
+    el('circle', { cx: px(p.lon), cy: py(p.lat), r: 5, fill: blue, stroke: paper, 'stroke-width': 1.5 });
+    el('text', { x: px(p.lon) + 8, y: py(p.lat) - 8, 'font-size': 12, 'font-weight': 700, fill: blue, ...halo }, p.name);
   }
   towns.forEach((t, i) => {
-    el('circle', { cx: px(t.lon), cy: py(t.lat), r: 9, fill: '#111', stroke: '#fff', 'stroke-width': 1.5 });
-    el('text', { x: px(t.lon), y: py(t.lat) + 4, 'font-size': 10, 'font-weight': 700, fill: '#fff', 'text-anchor': 'middle' }, String(i + 1));
-    el('text', { x: px(t.lon) + 12, y: py(t.lat) + 4, 'font-size': 11, 'font-weight': 600, fill: '#111', ...halo }, t.nom);
+    el('circle', { cx: px(t.lon), cy: py(t.lat), r: 9, fill: ink, stroke: paper, 'stroke-width': 1.5 });
+    el('text', { x: px(t.lon), y: py(t.lat) + 4, 'font-size': 10, 'font-weight': 700, fill: paper, 'text-anchor': 'middle' }, String(i + 1));
+    el('text', { x: px(t.lon) + 12, y: py(t.lat) + 4, 'font-size': 11, 'font-weight': 600, fill: ink, ...halo }, t.nom);
   });
-  box.append(svg, h('span', { class: 'report-map-credit' }, '© IGN – Plan IGN'));
+  box.append(svg, h('span', { class: 'report-map-credit' }, tiles.credit));
   return box;
 }
 
@@ -705,7 +706,7 @@ function reportMap(points, towns) {
  * commune (statut, chiffres, équipements, trajet, note).
  * towns : [{ commune, fav, budget, travel: [{ minutes, km } | null] }]
  */
-export function clientReportContent({ appName, folder, towns, excluded, points, data, insights, summary, comparison }) {
+export function clientReportContent({ appName, folder, towns, excluded, points, data, insights, summary, comparison, tiles }) {
   const date = new Intl.DateTimeFormat('fr-FR', { dateStyle: 'long' }).format(new Date());
   const brief = folder.fiche;
   const card = ({ commune, fav, budget, travel }, i) => {
@@ -754,7 +755,7 @@ export function clientReportContent({ appName, folder, towns, excluded, points, 
         ['Critères', brief.criteres],
       ].filter(([, v]) => v)
     : [];
-  const map = reportMap(points, towns.map((t) => t.commune));
+  const map = reportMap(points, towns.map((t) => t.commune), tiles);
   return [
     h('h1', {}, `${appName} — Dossier de recherche`),
     h('p', { class: 'print-summary' }, `${brief?.client || folder.nom} · préparé le ${date}`),
