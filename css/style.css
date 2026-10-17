@@ -1578,6 +1578,64 @@ li.selected .result {
   margin: 6px;
 }
 
+.folders-section .folders-list {
+  margin: 0;
+}
+
+.trash-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px 8px;
+  padding: 6px 0;
+}
+
+.trash-info {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.trash-info > * {
+  grid-area: auto;
+}
+
+.trash-info .r-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.trash-info .r-name svg {
+  flex: none;
+  color: var(--text-muted);
+}
+
+.trash-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.trash-actions .btn {
+  min-height: 36px;
+  padding: 4px 10px;
+  font-size: 0.88rem;
+}
+
+.archived-note {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 .folder-admin {
   justify-content: flex-start;
 }

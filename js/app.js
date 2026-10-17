@@ -25,10 +25,14 @@ import {
 } from './lib/favorites.js';
 import {
   addToFolder,
+  archiveFolder,
+  archivedFolders,
   briefHasZone,
   cleanFolders,
   createFolder,
   deleteFolder,
+  emptyTrash,
+  expireTrash,
   findFolder,
   folderCities,
   foldersContaining,
@@ -38,6 +42,11 @@ import {
   setFolderBrief,
   setFolderNote,
   setFolderStatus,
+  restoreFolder,
+  trashExpiry,
+  trashedFolders,
+  trashFolder,
+  TRASH_DAYS,
   visibleFolders,
 } from './lib/folders.js';
 import { exportUserData, importUserData, parseUserDataFile } from './lib/userdata.js';
@@ -77,6 +86,7 @@ import {
   clientReportContent,
   comparisonTableElement,
   deleteConfirm,
+  trashRow,
   detailsContent,
   favoriteRow,
   favoritesPrintContent,
@@ -118,6 +128,7 @@ const state = {
   favoritesOnly: false,
   openFolder: null,
   confirmDelete: null, // dossier dont la suppression attend confirmation
+  confirmErase: null, // dossier de la corbeille à effacer pour de bon ('all' : toute la corbeille)
   statusFilter: 'all',
   editingBrief: false,
   budget: null,
@@ -137,7 +148,8 @@ let results = [];
 let listedResults = []; // résultats affichés dans la liste (après la recherche dans la liste)
 let resultIndex = new Map();
 let favorites = readStoredFavorites(loadJson(STORAGE_KEYS.favorites));
-let folders = cleanFolders(loadJson(STORAGE_KEYS.folders)?.dossiers);
+// Les dossiers restés plus de 30 jours à la corbeille sont effacés au chargement
+let folders = expireTrash(cleanFolders(loadJson(STORAGE_KEYS.folders)?.dossiers));
 // Réglages du compte (ville de départ des itinéraires), synchronisés
 let settings = cleanSettings(loadJson(STORAGE_KEYS.settings));
 let syncUser = null;
@@ -248,6 +260,17 @@ const els = {
   folderPrint: $('folder-print'),
   folderDelete: $('folder-delete'),
   folderDeleteConfirm: $('folder-delete-confirm'),
+  folderArchive: $('folder-archive'),
+  folderArchivedNote: $('folder-archived-note'),
+  foldersFeedback: $('folders-feedback'),
+  foldersArchive: $('folders-archive'),
+  foldersArchiveCount: $('folders-archive-count'),
+  foldersArchiveList: $('folders-archive-list'),
+  foldersTrash: $('folders-trash'),
+  foldersTrashCount: $('folders-trash-count'),
+  foldersTrashList: $('folders-trash-list'),
+  foldersTrashEmpty: $('folders-trash-empty'),
+  foldersTrashConfirm: $('folders-trash-confirm'),
   folderEmpty: $('folder-empty'),
   folderCitiesList: $('folder-cities'),
   picker: $('folder-picker'),
@@ -1281,22 +1304,48 @@ function renderFolders() {
   els.foldersHome.hidden = Boolean(folder);
   els.folderDetail.hidden = !folder;
   if (!folder) {
+    const archived = archivedFolders(folders);
+    const trashed = trashedFolders(folders);
     els.foldersEmpty.hidden = list.length > 0;
+    els.foldersEmpty.textContent =
+      archived.length || trashed.length
+        ? 'Aucun dossier en cours.'
+        : "Aucun dossier pour l'instant. Créez-en un, puis rangez-y des communes avec le bouton dossier de la liste ou de la fiche d'une commune.";
     els.foldersPrintAll.hidden = list.length === 0;
-    const listed = applyListFilter('folders', list, (items, q) => filterFolders(items, q, folderCities));
-    els.foldersList.replaceChildren(
-      ...listed.map((f) =>
-        folderRow(f, folderCities(f).length, {
-          onOpen: (id) => openFolder(id),
-          onDelete: (id) => askDeleteFolder(id),
-          confirm: state.confirmDelete === f.id ? folderDeleteConfirm(f) : null,
-        })
-      )
+    const byFolder = (items, q) => filterFolders(items, q, folderCities);
+    const listed = applyListFilter('folders', list, byFolder, list.length + archived.length);
+    const row = (f) =>
+      folderRow(f, folderCities(f).length, {
+        onOpen: (id) => openFolder(id),
+        onDelete: (id) => askDeleteFolder(id),
+        confirm: state.confirmDelete === f.id ? folderDeleteConfirm(f) : null,
+      });
+    els.foldersList.replaceChildren(...listed.map(row));
+    // Archives : la recherche s'y applique aussi, et les ouvre si elle y trouve un dossier
+    const query = listFilters.folders.input.value;
+    const searching = queryWords(query).length > 0;
+    const archivedListed = searching ? byFolder(archived, query) : archived;
+    els.foldersArchive.hidden = archived.length === 0;
+    els.foldersArchiveCount.textContent = archived.length ? String(archived.length) : '';
+    if (searching && archivedListed.length) {
+      els.foldersArchive.open = true;
+      const inArchive = `${formatNumber(archivedListed.length)} dans les archives`;
+      listFilters.folders.info.textContent = listed.length
+        ? `${formatNumber(listed.length)} sur ${formatNumber(list.length)} en cours · ${inArchive}`
+        : inArchive;
+    }
+    els.foldersArchiveList.replaceChildren(
+      ...(archivedListed.length
+        ? archivedListed.map(row)
+        : [h('li', { class: 'hint' }, 'Aucun dossier archivé ne correspond.')])
     );
+    renderTrash(trashed);
     mapView.hideFavorites();
     return [];
   }
   els.folderTitle.textContent = folder.nom;
+  els.folderArchivedNote.hidden = !folder.archive;
+  els.folderArchive.textContent = folder.archive ? 'Remettre en cours' : 'Archiver le dossier';
   const confirming = state.confirmDelete === folder.id;
   els.folderDelete.hidden = confirming;
   els.folderDeleteConfirm.hidden = !confirming;
@@ -1580,7 +1629,7 @@ function closeFolder() {
   state.openFolder = null;
   state.confirmDelete = null;
   renderFolders();
-  els.foldersList.querySelector(`li[data-id="${id}"] button`)?.focus({ preventScroll: true });
+  els.foldersHome.querySelector(`li[data-id="${id}"] button`)?.focus({ preventScroll: true });
 }
 
 els.folderCreate.addEventListener('submit', (e) => {
@@ -1620,19 +1669,17 @@ els.folderRenameForm.addEventListener('submit', (e) => {
 });
 
 function folderDeleteConfirm(folder) {
-  const n = folderCities(folder).length;
-  const what = n ? ` Ses ${n > 1 ? `${n} communes` : 'commune'}, notes et fiche client seront effacées.` : '';
-  return deleteConfirm(`Supprimer le dossier «${NBSP}${folder.nom}${NBSP}»${NBSP}?${what}`, {
-    onConfirm: () => removeFolder(folder.id),
-    onCancel: () => cancelDeleteFolder(),
-  });
+  return deleteConfirm(
+    `Supprimer le dossier «${NBSP}${folder.nom}${NBSP}»${NBSP}? Il restera ${TRASH_DAYS}${NBSP}jours dans la corbeille, où vous pourrez le restaurer.`,
+    { onConfirm: () => removeFolder(folder.id), onCancel: () => cancelDeleteFolder() }
+  );
 }
 
 /** Premier clic sur « Supprimer » : affiche la confirmation (focus sur Annuler). */
 function askDeleteFolder(id) {
   state.confirmDelete = id;
   renderFolders();
-  const box = state.openFolder ? els.folderDeleteConfirm : els.foldersList.querySelector(`li[data-id="${id}"]`);
+  const box = state.openFolder ? els.folderDeleteConfirm : els.foldersHome.querySelector(`li[data-id="${id}"]`);
   box?.querySelector('.btn-secondary')?.focus({ preventScroll: true });
   box?.scrollIntoView({ block: 'nearest' });
 }
@@ -1641,25 +1688,133 @@ function cancelDeleteFolder() {
   const id = state.confirmDelete;
   state.confirmDelete = null;
   renderFolders();
-  const back = state.openFolder ? els.folderDelete : els.foldersList.querySelector(`li[data-id="${id}"] .star-btn`);
+  const back = state.openFolder ? els.folderDelete : els.foldersHome.querySelector(`li[data-id="${id}"] .star-btn`);
   back?.focus({ preventScroll: true });
 }
 
-/** Supprime le dossier (confirmé), depuis la liste ou le dossier ouvert. */
+/** Ligne voisine (suivante, sinon précédente) dans la même liste, pour y garder le focus. */
+function neighbourId(id) {
+  const li = els.foldersHome.querySelector(`li[data-id="${id}"]`);
+  return (li?.nextElementSibling ?? li?.previousElementSibling)?.dataset?.id ?? null;
+}
+
+function focusFolderRow(id, fallback) {
+  const row = id && els.foldersHome.querySelector(`li[data-id="${id}"] button`);
+  (row || fallback)?.focus({ preventScroll: true });
+}
+
+/** Met le dossier à la corbeille (confirmé), depuis la liste ou le dossier ouvert. */
 function removeFolder(id) {
-  if (!findFolder(folders, id)) return;
-  // Le focus passe à la ligne suivante (ou au champ de création)
-  const ids = visibleFolders(folders).map((f) => f.id);
-  const next = ids[ids.indexOf(id) + 1] ?? ids[ids.indexOf(id) - 1];
-  folders = deleteFolder(folders, id);
+  const folder = findFolder(folders, id);
+  if (!folder) return;
+  const next = neighbourId(id);
+  folders = trashFolder(folders, id);
   saveFavorites();
   state.openFolder = null;
   state.confirmDelete = null;
   renderFolders();
   renderList();
-  const row = next && els.foldersList.querySelector(`li[data-id="${next}"] button`);
-  (row || els.folderName).focus({ preventScroll: true });
+  flash(els.foldersFeedback, `«${NBSP}${folder.nom}${NBSP}» est dans la corbeille pendant ${TRASH_DAYS}${NBSP}jours.`);
+  focusFolderRow(next, els.folderName);
 }
+
+// ---- Corbeille -------------------------------------------------------------
+
+function renderTrash(trashed) {
+  els.foldersTrash.hidden = trashed.length === 0;
+  els.foldersTrashCount.textContent = trashed.length ? String(trashed.length) : '';
+  if (state.confirmErase && state.confirmErase !== 'all' && !trashed.some((f) => f.id === state.confirmErase)) {
+    state.confirmErase = null; // restauré ou effacé sur un autre appareil
+  }
+  els.foldersTrashList.replaceChildren(
+    ...trashed.map((f) =>
+      trashRow(f, folderCities(f).length, trashExpiry(f), {
+        onRestore: (id) => restoreTrashed(id),
+        onErase: (id) => askErase(id),
+        confirm:
+          state.confirmErase === f.id
+            ? deleteConfirm(`Effacer définitivement «${NBSP}${f.nom}${NBSP}»${NBSP}? Il ne pourra plus être restauré.`, {
+                confirmLabel: 'Effacer',
+                onConfirm: () => erase(f.id),
+                onCancel: () => cancelErase(),
+              })
+            : null,
+      })
+    )
+  );
+  const all = state.confirmErase === 'all' && trashed.length > 0;
+  els.foldersTrashEmpty.hidden = all;
+  els.foldersTrashConfirm.hidden = !all;
+  els.foldersTrashConfirm.replaceChildren(
+    ...(all
+      ? [
+          deleteConfirm(
+            `Effacer définitivement ${trashed.length > 1 ? `les ${trashed.length} dossiers` : 'le dossier'} de la corbeille${NBSP}?`,
+            { confirmLabel: 'Vider la corbeille', onConfirm: () => erase('all'), onCancel: () => cancelErase() }
+          ),
+        ]
+      : [])
+  );
+}
+
+function restoreTrashed(id) {
+  const folder = folders.find((f) => f.id === id);
+  if (!folder) return;
+  const next = neighbourId(id);
+  folders = restoreFolder(folders, id);
+  saveFavorites();
+  renderFolders();
+  renderList();
+  const where = folder.archive ? 'dans les archives' : 'dans vos dossiers';
+  flash(els.foldersFeedback, `«${NBSP}${folder.nom}${NBSP}» est de retour ${where}.`);
+  focusFolderRow(next, els.foldersHome.querySelector(`li[data-id="${id}"] button`) ?? els.folderName);
+}
+
+function askErase(id) {
+  state.confirmErase = id;
+  renderFolders();
+  const box = id === 'all' ? els.foldersTrashConfirm : els.foldersTrashList.querySelector(`li[data-id="${id}"]`);
+  box?.querySelector('.btn-secondary')?.focus({ preventScroll: true });
+}
+
+function cancelErase() {
+  const id = state.confirmErase;
+  state.confirmErase = null;
+  renderFolders();
+  const back = id === 'all' ? els.foldersTrashEmpty : els.foldersTrashList.querySelector(`li[data-id="${id}"] .star-btn`);
+  back?.focus({ preventScroll: true });
+}
+
+function erase(id) {
+  const next = id === 'all' ? null : neighbourId(id);
+  folders = id === 'all' ? emptyTrash(folders) : deleteFolder(folders, id);
+  state.confirmErase = null;
+  saveFavorites();
+  renderFolders();
+  flash(els.foldersFeedback, id === 'all' ? 'Corbeille vidée.' : 'Dossier effacé définitivement.');
+  focusFolderRow(next, els.folderName);
+}
+
+els.foldersTrashEmpty.addEventListener('click', () => askErase('all'));
+
+// ---- Archives --------------------------------------------------------------
+
+els.folderArchive.addEventListener('click', () => {
+  const folder = findFolder(folders, state.openFolder);
+  if (!folder) return;
+  folders = archiveFolder(folders, folder.id, !folder.archive);
+  saveFavorites();
+  renderList();
+  if (folder.archive) {
+    // Remis en cours : on reste dans le dossier
+    renderFolders();
+    flash(els.folderFeedback, 'Dossier remis en cours.');
+    els.folderArchive.focus({ preventScroll: true });
+  } else {
+    closeFolder();
+    flash(els.foldersFeedback, `«${NBSP}${folder.nom}${NBSP}» est rangé dans les archives.`);
+  }
+});
 
 els.folderDelete.addEventListener('click', () => askDeleteFolder(state.openFolder));
 

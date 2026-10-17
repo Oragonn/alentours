@@ -17,6 +17,16 @@ import {
   setFolderNote,
   visibleFolders,
   MAX_FOLDERS,
+  archiveFolder,
+  archivedFolders,
+  emptyTrash,
+  expireTrash,
+  liveFolders,
+  restoreFolder,
+  trashedFolders,
+  trashFolder,
+  TRASH_DAYS,
+  MAX_SYNCED_FOLDERS,
 } from '../js/lib/folders.js';
 import { addFavorite, setNote } from '../js/lib/favorites.js';
 
@@ -136,9 +146,116 @@ test('fichier d’export : version 2 avec dossiers, import fusion et remplacemen
     ['62041', ''],
   ]);
 
-  // Remplacement : les dossiers absents du fichier sont supprimés
-  local = createFolder(local, 'Autre', t(7), 'd2').folders;
+  // Remplacement : les dossiers absents du fichier vont à la corbeille
+  local = addToFolder(createFolder(local, 'Autre', t(7), 'd2').folders, 'd2', arras, t(7));
   const replaced = importUserData({ items: [], dossiers: local }, parsed, 'replace', t(8));
   assert.deepEqual(visibleFolders(replaced.dossiers).map((f) => f.id), ['d1']);
   assert.equal(folderCities(findFolder(replaced.dossiers, 'd1'))[0].note, 'gare');
+  const binned = trashedFolders(replaced.dossiers, t(9));
+  assert.deepEqual(binned.map((f) => f.id), ['d2']);
+  assert.deepEqual(folderCities(binned[0]).map((c) => c.code), ['62041'], 'contenu gardé');
+
+  // Fusion dans un dossier à la corbeille sur cet appareil : il est restauré
+  const restored = importUserData({ items: [], dossiers: trashFolder(local, 'd1', t(9)) }, incoming, 'merge', t(10));
+  assert.deepEqual(folderCities(findFolder(restored.dossiers, 'd1')).map((c) => c.code), ['59350', '62041']);
+
+  // Les dossiers archivés sont exportés, avec leur marque
+  const withArchive = exportUserData({ items: [], dossiers: archiveFolder(local, 'd2', true, t(11)) }, t(12));
+  assert.deepEqual(withArchive.dossiers.map((f) => [f.id, f.archive ?? false]), [['d1', false], ['d2', true]]);
+  assert.equal(findFolder(parseUserDataFile(JSON.stringify(withArchive)).dossiers, 'd2').archive, true);
+});
+
+const day = (d) => new Date(Date.UTC(2026, 9, 10 + d, 12));
+
+test('corbeille : le dossier garde son contenu et se restaure', () => {
+  let { folders } = createFolder([], 'Martin', t(0), 'm');
+  folders = addToFolder(folders, 'm', lille, t(1));
+  folders = setFolderNote(folders, 'm', '59350', 'Proche gare', t(2));
+  folders = trashFolder(folders, 'm', day(0));
+  assert.deepEqual(visibleFolders(folders), []);
+  assert.equal(findFolder(folders, 'm'), null, 'non consultable à la corbeille');
+  assert.deepEqual(foldersContaining(folders, '59350'), []);
+  assert.deepEqual(trashedFolders(folders, day(1)).map((f) => f.id), ['m']);
+  // Les modifications sont refusées tant qu'il est à la corbeille
+  assert.equal(renameFolder(folders, 'm', 'Autre', day(1))[0].nom, 'Martin');
+  folders = restoreFolder(folders, 'm', day(2));
+  assert.deepEqual(folderCities(findFolder(folders, 'm')).map((c) => c.note), ['Proche gare']);
+  assert.deepEqual(trashedFolders(folders, day(2)), []);
+});
+
+test('corbeille : effacée après TRASH_DAYS jours, ou à la demande', () => {
+  let { folders } = createFolder([], 'A', t(0), 'a');
+  ({ folders } = createFolder(folders, 'B', t(0), 'b'));
+  folders = addToFolder(folders, 'a', lille, t(1));
+  folders = trashFolder(trashFolder(folders, 'a', day(0)), 'b', day(5));
+  assert.deepEqual(trashedFolders(folders, day(6)).map((f) => f.id), ['b', 'a'], 'derniers supprimés d’abord');
+  assert.deepEqual(trashedFolders(folders, day(TRASH_DAYS)).map((f) => f.id), ['b']);
+  const expired = expireTrash(folders, day(TRASH_DAYS));
+  const a = expired.find((f) => f.id === 'a');
+  assert.equal(a.supprime, true);
+  assert.deepEqual(a.villes, []);
+  assert.equal(a.modifie, day(0).toISOString(), 'date de la mise à la corbeille, la même partout');
+  assert.ok(!expired.find((f) => f.id === 'b').supprime);
+  assert.ok(emptyTrash(folders, day(6)).every((f) => f.supprime));
+  // Effacer pour de bon depuis la corbeille
+  assert.equal(deleteFolder(folders, 'b', day(6)).find((f) => f.id === 'b').supprime, true);
+});
+
+test('archives : rangées à part, consultables, restaurées à leur place', () => {
+  let { folders } = createFolder([], 'Vendu', t(0), 'v');
+  folders = archiveFolder(folders, 'v', true, t(1));
+  assert.deepEqual(visibleFolders(folders), []);
+  assert.deepEqual(archivedFolders(folders).map((f) => f.id), ['v']);
+  assert.equal(findFolder(folders, 'v').nom, 'Vendu', 'un dossier archivé s’ouvre');
+  assert.deepEqual(liveFolders(folders).map((f) => f.id), ['v']);
+  // Supprimé puis restauré : il revient dans les archives
+  folders = restoreFolder(trashFolder(folders, 'v', t(2)), 'v', t(3));
+  assert.deepEqual(archivedFolders(folders).map((f) => f.id), ['v']);
+  folders = archiveFolder(folders, 'v', false, t(4));
+  assert.deepEqual(visibleFolders(folders).map((f) => f.id), ['v']);
+  assert.deepEqual(cleanFolders(archiveFolder(folders, 'v', true, t(5)))[0].archive, true, 'gardé au nettoyage');
+});
+
+test('synchronisation : corbeille, restauration et archives se propagent', () => {
+  let { folders: base } = createFolder([], 'Martin', t(0), 'm');
+  base = addToFolder(base, 'm', lille, t(1));
+  const phone = trashFolder(base, 'm', day(1));
+  // Pendant ce temps, une note ajoutée sur l'ordinateur
+  const laptop = setFolderNote(base, 'm', '59350', 'Vue', day(1));
+  let merged = mergeFolders(phone, laptop, day(2));
+  assert.deepEqual(trashedFolders(merged, day(2)).map((f) => f.id), ['m']);
+  assert.equal(merged[0].villes.find((v) => v.code === '59350').note, 'Vue', 'la note n’est pas perdue');
+  // Restauré sur l'ordinateur, plus récent : il revient partout
+  merged = mergeFolders(phone, restoreFolder(merged, 'm', day(3)), day(4));
+  assert.equal(findFolder(merged, 'm').nom, 'Martin');
+  assert.ok(sameFolders(merged, cleanFolders(JSON.parse(JSON.stringify(merged)))));
+  const archived = archiveFolder(merged, 'm', true, day(5));
+  assert.ok(!sameFolders(merged, archived));
+  assert.deepEqual(archivedFolders(mergeFolders(merged, archived, day(6))).map((f) => f.id), ['m']);
+  // Corbeille expirée pendant la fusion
+  const old = trashFolder(base, 'm', day(1));
+  assert.equal(mergeFolders(old, old, day(TRASH_DAYS + 2))[0].supprime, true);
+});
+
+test('synchronisation : une restauration l’emporte sur l’expiration faite ailleurs', () => {
+  let { folders: base } = createFolder([], 'Martin', t(0), 'm');
+  base = addToFolder(base, 'm', lille, t(1));
+  const trashed = trashFolder(base, 'm', day(0));
+  // L'ordinateur restaure au 29e jour ; le téléphone, resté hors ligne, l'expire au 31e
+  const laptop = restoreFolder(trashed, 'm', day(29));
+  const phone = expireTrash(trashed, day(31));
+  assert.equal(phone[0].supprime, true);
+  const merged = mergeFolders(phone, laptop, day(31));
+  assert.deepEqual(folderCities(findFolder(merged, 'm')).map((c) => c.code), ['59350']);
+});
+
+test('synchronisation : jamais plus de MAX_SYNCED_FOLDERS entrées', () => {
+  // 230 dossiers, dont 80 effacés récemment : 150 gardés + 80 marques
+  const stamp = day(0).toISOString();
+  let folders = Array.from({ length: 230 }, (_, i) => ({ id: `d${i}`, nom: `D${i}`, cree: stamp, modifie: stamp, villes: [] }));
+  for (let i = 0; i < 80; i++) folders = deleteFolder(folders, `d${i}`, new Date(day(1).getTime() + i * 60000));
+  const merged = mergeFolders(folders, [], day(2));
+  assert.equal(merged.length, MAX_SYNCED_FOLDERS);
+  assert.equal(merged.filter((f) => !f.supprime).length, 150, 'aucun dossier gardé n’est perdu');
+  assert.ok(!merged.some((f) => f.id === 'd0'), 'les marques les plus anciennes partent d’abord');
 });

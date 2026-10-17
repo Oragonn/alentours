@@ -100,7 +100,8 @@ limiter la clé « Browser key » aux sites `oragonn.github.io/*` et
 `localhost:*`.
 
 Données enregistrées : un document `favoris/{uid}` par compte : favoris (code
-INSEE, nom, dates), dossiers (nom, communes, notes, fiche client) et réglages
+INSEE, nom, dates), dossiers (nom, communes, notes, fiche client, y compris
+les dossiers archivés et ceux de la corbeille, gardés 30 jours) et réglages
 (ville de départ des itinéraires). Après une mise à jour de `firestore.rules`,
 recollez-le dans la console et publiez.
 

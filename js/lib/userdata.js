@@ -11,7 +11,7 @@ import {
   syncMerge,
   visibleFavorites,
 } from './favorites.js';
-import { cleanFolders, mergeFolders, sameFolders, visibleFolders } from './folders.js';
+import { cleanFolders, liveFolders, mergeFolders, sameFolders } from './folders.js';
 import { cleanSettings, mergeSettings, sameSettings } from './settings.js';
 
 export const EMPTY_USER_DATA = Object.freeze({ items: [], dossiers: [], reglages: null });
@@ -39,7 +39,7 @@ export function sameUserData(a, b) {
 
 // ---- Fichier d'export (alentours-favoris.json) ----------------------------
 // Version 1 : { format, version: 1, favoris: [{ code, nom, note, ajoute }] }
-// Version 2 : ajoute dossiers: [{ id, nom, cree, villes: [{ code, nom, note, ajoute }] }]
+// Version 2 : ajoute dossiers: [{ id, nom, cree, fiche?, archive?, villes: [{ code, nom, note, ajoute }] }]
 
 export const USER_FILE_VERSION = 2;
 
@@ -49,11 +49,12 @@ export function exportUserData({ items, dossiers }, now = new Date()) {
     version: USER_FILE_VERSION,
     exporte: now.toISOString(),
     favoris: visibleFavorites(items).map(({ code, nom, ajoute }) => ({ code, nom, ajoute })),
-    dossiers: visibleFolders(dossiers).map(({ id, nom, cree, fiche, villes }) => ({
+    dossiers: liveFolders(dossiers).map(({ id, nom, cree, fiche, archive, villes }) => ({
       id,
       nom,
       cree,
       ...(fiche ? { fiche } : {}),
+      ...(archive ? { archive } : {}),
       villes: visibleFavorites(villes).map(({ code, nom: n, note, ajoute, statut }) => ({
         code,
         nom: n,
@@ -80,14 +81,14 @@ export function parseUserDataFile(text) {
   const favs = parseFavoritesFile(JSON.stringify({ ...json, version: 1 }));
   if (!favs.ok) return { ok: false };
   if (json.dossiers !== undefined && !Array.isArray(json.dossiers)) return { ok: false };
-  const dossiers = cleanFolders(json.dossiers ?? []).filter((f) => !f.supprime);
+  const dossiers = cleanFolders(json.dossiers ?? []).filter((f) => !f.supprime && !f.corbeille);
   return { ok: true, items: favs.items, dossiers };
 }
 
 /**
  * Applique un import : « merge » ajoute ce qui manque, « replace » remplace
- * favoris et dossiers (les anciens sont marqués supprimés pour les autres
- * appareils).
+ * favoris et dossiers (les dossiers absents du fichier vont à la corbeille,
+ * d'où on peut les restaurer).
  */
 export function importUserData(current, incoming, mode, now = new Date()) {
   const stamp = now.toISOString();
@@ -102,7 +103,7 @@ export function importUserData(current, incoming, mode, now = new Date()) {
     const keep = new Set(fresh.map((f) => f.id));
     const dossiers = current.dossiers
       .filter((f) => !keep.has(f.id))
-      .map((f) => (f.supprime ? f : { id: f.id, nom: f.nom, cree: f.cree, modifie: stamp, supprime: true, villes: [] }));
+      .map((f) => (f.supprime || f.corbeille ? f : { ...f, corbeille: stamp, modifie: stamp }));
     for (const f of fresh) {
       const old = currentById.get(f.id);
       // Villes absentes du fichier : retirées (et propagées aux autres appareils)
@@ -121,9 +122,12 @@ export function importUserData(current, incoming, mode, now = new Date()) {
     const imported = fresh.find((n) => n.id === f.id);
     if (!imported || f.supprime) return f;
     const added = imported.villes.filter((v) => !visibleFavorites(f.villes).some((c) => c.code === v.code));
+    // Dossier à la corbeille sur cet appareil : l'import le restaure
+    const { corbeille, ...rest } = f;
+    const base = corbeille ? { ...rest, modifie: stamp } : f;
     return added.length
-      ? { ...f, villes: [...f.villes.filter((c) => !added.some((a) => a.code === c.code)), ...added] }
-      : f;
+      ? { ...base, villes: [...f.villes.filter((c) => !added.some((a) => a.code === c.code)), ...added] }
+      : base;
   });
   for (const f of fresh) if (!currentById.has(f.id)) dossiers.push(f);
   return { items: mergeFavorites(current.items, incoming.items, now), dossiers };

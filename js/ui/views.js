@@ -477,7 +477,7 @@ export function briefCard(brief) {
 
 /** Ligne de la liste des dossiers */
 /** Confirmation de suppression dans la page (Échap = annuler) */
-export function deleteConfirm(message, { onConfirm, onCancel }) {
+export function deleteConfirm(message, { onConfirm, onCancel, confirmLabel = 'Supprimer' }) {
   return h(
     'div',
     {
@@ -495,7 +495,7 @@ export function deleteConfirm(message, { onConfirm, onCancel }) {
     h(
       'div',
       { class: 'actions' },
-      h('button', { type: 'button', class: 'btn btn-danger', onclick: onConfirm }, 'Supprimer'),
+      h('button', { type: 'button', class: 'btn btn-danger', onclick: onConfirm }, confirmLabel),
       h('button', { type: 'button', class: 'btn btn-secondary', onclick: onCancel }, 'Annuler')
     )
   );
@@ -523,6 +523,48 @@ export function folderRow(folder, count, { onOpen, onDelete, confirm = null }) {
         onclick: () => onDelete(folder.id),
       },
       '✕'
+    )
+  );
+}
+
+const shortDate = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long' });
+
+/** Dossier à la corbeille : restaurer ou effacer pour de bon */
+export function trashRow(folder, count, expiry, { onRestore, onErase, confirm = null }) {
+  if (confirm) return h('li', { dataset: { id: folder.id } }, confirm);
+  const days = Math.max(1, Math.ceil((expiry - Date.now()) / 86400000));
+  return h(
+    'li',
+    { dataset: { id: folder.id }, class: 'trash-line' },
+    h(
+      'div',
+      { class: 'trash-info' },
+      h('span', { class: 'r-name' }, folderIcon(false), ' ', folder.nom),
+      h(
+        'span',
+        { class: 'r-meta' },
+        `${count ? `${count} commune${count > 1 ? 's' : ''}` : 'Vide'} · effacé le ${shortDate.format(expiry)} (${days} j)`
+      )
+    ),
+    h(
+      'div',
+      { class: 'trash-actions' },
+      h(
+        'button',
+        { type: 'button', class: 'btn btn-secondary', 'aria-label': `Restaurer le dossier : ${folder.nom}`, onclick: () => onRestore(folder.id) },
+        'Restaurer'
+      ),
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'star-btn',
+          'aria-label': `Effacer définitivement : ${folder.nom}`,
+          title: 'Effacer définitivement',
+          onclick: () => onErase(folder.id),
+        },
+        '✕'
+      )
     )
   );
 }

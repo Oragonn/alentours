@@ -5,19 +5,34 @@ rules_version = '2';
 //
 // Chaque compte ne peut lire et écrire que son propre document
 // favoris/{uid}. Tout le reste est refusé.
+//
+// Document : { version, items, dossiers, reglages?, modifie }
+//   items     favoris (marques de suppression comprises), 2000 au plus
+//   dossiers  dossiers en cours, archivés (archive), à la corbeille (corbeille,
+//             30 jours) et marques des dossiers effacés (supprime) : 200 au
+//             plus, l'application ne dépasse jamais ce nombre (js/lib/folders.js,
+//             MAX_SYNCED_FOLDERS)
+//   reglages  ville de départ des itinéraires : { depart, modifie }
+//   modifie   date du serveur à chaque écriture
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    function validDoc(d) {
+      return d.keys().hasOnly(['version', 'items', 'dossiers', 'reglages', 'modifie'])
+        && d.version is int
+        && d.items is list
+        && d.items.size() <= 2000
+        && (!('dossiers' in d) || (d.dossiers is list && d.dossiers.size() <= 200))
+        && (!('reglages' in d) || (d.reglages is map && d.reglages.keys().hasOnly(['depart', 'modifie'])))
+        && d.modifie is timestamp;
+    }
+
     match /favoris/{uid} {
-      allow read, delete: if request.auth != null && request.auth.uid == uid;
-      allow create, update: if request.auth != null
-        && request.auth.uid == uid
-        && request.resource.data.keys().hasOnly(['version', 'items', 'dossiers', 'reglages', 'modifie'])
-        && request.resource.data.items is list
-        && request.resource.data.items.size() <= 2000
-        && (!('dossiers' in request.resource.data)
-            || (request.resource.data.dossiers is list && request.resource.data.dossiers.size() <= 200))
-        // Réglages du compte (ville de départ des itinéraires)
-        && (!('reglages' in request.resource.data) || request.resource.data.reglages is map);
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validDoc(request.resource.data);
     }
   }
 }
