@@ -442,6 +442,15 @@ textarea {
   background: var(--accent-soft);
 }
 
+.btn-danger {
+  background: var(--danger);
+  color: var(--surface);
+}
+
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(0.9);
+}
+
 .btn-icon {
   padding: 0;
   width: var(--tap);
@@ -1297,6 +1306,25 @@ li.selected .result {
   min-width: 0;
 }
 
+.list-filter {
+  display: grid;
+  gap: 4px;
+}
+
+.list-filter input {
+  width: 100%;
+}
+
+.list-filter-info {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.list-filter-info:empty {
+  display: none;
+}
+
 .folders-list {
   list-style: none;
   margin: 0 -6px;
@@ -1309,6 +1337,12 @@ li.selected .result {
 
 .folders-list li:last-child {
   border-bottom: 0;
+}
+
+.folder-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .folder-row .r-name {
@@ -1334,8 +1368,21 @@ li.selected .result {
   padding-left: 0;
 }
 
+.folder-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: -6px;
+}
+
+.folder-head .btn {
+  flex: none;
+  margin-top: -8px;
+}
+
 .folder-title {
-  margin: -6px 0 0;
+  margin: 0;
   font-size: 1.25rem;
   overflow-wrap: anywhere;
 }
@@ -1514,6 +1561,22 @@ li.selected .result {
 .status-select select.status-visite { border-left-color: #ea580c; }
 .status-select select.status-retenu { border-left-color: #16a34a; }
 .status-select select.status-ecarte { border-left-color: #6b7280; }
+
+.delete-confirm {
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.delete-confirm p {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.folders-list .delete-confirm {
+  margin: 6px;
+}
 
 .folder-admin {
   justify-content: flex-start;

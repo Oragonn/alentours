@@ -49,6 +49,7 @@ import { formatDuration, isochrone, travelTime } from './routing.js';
 import { looksLikeAddress, searchAddresses } from './geocode.js';
 import { priceInfo, trendText } from './lib/insights.js';
 import { adminFacets, filterByAdmin, searchArea, validatePopulation } from './lib/search.js';
+import { filterFolders, filterResults, filterSavedCities, queryWords } from './lib/filter.js';
 import { sortResults } from './lib/sort.js';
 import { suggest } from './lib/suggest.js';
 import { deName, searchSummary } from './lib/summary.js';
@@ -56,6 +57,7 @@ import {
   formatCoords,
   formatMinutes,
   formatNumber,
+  NBSP,
   parseDecimalInput,
   parseIntegerInput,
   parseMinutesInput,
@@ -74,6 +76,7 @@ import {
   briefCard,
   clientReportContent,
   comparisonTableElement,
+  deleteConfirm,
   detailsContent,
   favoriteRow,
   favoritesPrintContent,
@@ -114,6 +117,7 @@ const state = {
   view: 'results',
   favoritesOnly: false,
   openFolder: null,
+  confirmDelete: null, // dossier dont la suppression attend confirmation
   statusFilter: 'all',
   editingBrief: false,
   budget: null,
@@ -130,6 +134,7 @@ const state = {
 
 let areaResults = [];
 let results = [];
+let listedResults = []; // résultats affichés dans la liste (après la recherche dans la liste)
 let resultIndex = new Map();
 let favorites = readStoredFavorites(loadJson(STORAGE_KEYS.favorites));
 let folders = cleanFolders(loadJson(STORAGE_KEYS.folders)?.dossiers);
@@ -242,6 +247,7 @@ const els = {
   folderRenameCancel: $('folder-rename-cancel'),
   folderPrint: $('folder-print'),
   folderDelete: $('folder-delete'),
+  folderDeleteConfirm: $('folder-delete-confirm'),
   folderEmpty: $('folder-empty'),
   folderCitiesList: $('folder-cities'),
   picker: $('folder-picker'),
@@ -271,6 +277,37 @@ const els = {
   syncSignOut: $('sync-signout'),
   syncDelete: $('sync-delete'),
 };
+
+// Champs « Rechercher dans… » des listes (résultats, favoris, dossiers, villes d'un dossier)
+const listFilters = Object.fromEntries(
+  ['results', 'favorites', 'folders', 'folder-cities'].map((k) => [
+    k,
+    { box: $(`${k}-filter-box`), input: $(`${k}-filter`), info: $(`${k}-filter-info`) },
+  ])
+);
+
+/**
+ * Applique le champ de recherche d'une liste et renvoie les éléments retenus.
+ * Le champ apparaît dès que la liste compte 2 éléments (total), ou tant
+ * qu'une recherche est saisie.
+ */
+function applyListFilter(key, items, filter, total = items.length) {
+  const f = listFilters[key];
+  const query = f.input.value;
+  const active = queryWords(query).length > 0;
+  f.box.hidden = total < 2 && !query;
+  const kept = active ? filter(items, query) : items;
+  f.info.textContent = !active
+    ? ''
+    : kept.length
+      ? `${formatNumber(kept.length)} sur ${formatNumber(items.length)}`
+      : `Aucun résultat pour « ${query.trim()} ».`;
+  return kept;
+}
+
+function clearListFilter(key) {
+  listFilters[key].input.value = '';
+}
 
 document.title = APP_NAME;
 document.querySelectorAll('[data-app-name]').forEach((el) => (el.textContent = APP_NAME));
@@ -688,8 +725,9 @@ function renderCount(points) {
 
 function renderList() {
   const names = pointNames();
+  listedResults = applyListFilter('results', results, (items, q) => filterResults(items, q, data?.departements));
   const frag = document.createDocumentFragment();
-  for (const r of results.slice(0, state.shown)) {
+  for (const r of listedResults.slice(0, state.shown)) {
     frag.append(
       resultRow(r, {
         pointNames: names,
@@ -704,10 +742,10 @@ function renderList() {
     );
   }
   els.list.replaceChildren(frag);
-  const remaining = results.length - state.shown;
+  const remaining = listedResults.length - state.shown;
   els.more.hidden = remaining <= 0;
   if (remaining > 0) {
-    els.more.textContent = `Afficher plus (${formatNumber(Math.min(state.shown, results.length))} sur ${formatNumber(results.length)})`;
+    els.more.textContent = `Afficher plus (${formatNumber(Math.min(state.shown, listedResults.length))} sur ${formatNumber(listedResults.length)})`;
   }
 }
 
@@ -719,7 +757,7 @@ els.more.addEventListener('click', () => {
 });
 
 function revealRow(code) {
-  const index = results.findIndex((r) => r.commune.code === code);
+  const index = listedResults.findIndex((r) => r.commune.code === code);
   if (index < 0) return;
   if (index >= state.shown) {
     state.shown = Math.ceil((index + 1) / LIST_PAGE_SIZE) * LIST_PAGE_SIZE;
@@ -1202,7 +1240,8 @@ function renderFavorites() {
   els.compareOpen.textContent = n ? `Comparer (${n})` : 'Comparer';
   els.compareHint.textContent =
     n >= 5 ? '5 favoris au maximum.' : 'Cochez « Comparer » sur 2 à 5 favoris pour les voir côte à côte.';
-  const rows = visible.map((item) => {
+  const listed = applyListFilter('favorites', visible, (items, q) => filterSavedCities(items, q, data ?? {}));
+  const rows = listed.map((item) => {
     const li = favoriteRow(item, data?.byCode.get(item.code), {
       data,
       onOpen: (code) => openDetails(code, 'fav'),
@@ -1228,7 +1267,7 @@ function renderFavorites() {
     return li;
   });
   els.favList.replaceChildren(...rows);
-  const communes = visible.map((f) => data?.byCode.get(f.code)).filter(Boolean);
+  const communes = listed.map((f) => data?.byCode.get(f.code)).filter(Boolean);
   mapView.showFavorites(communes);
   return communes;
 }
@@ -1244,13 +1283,25 @@ function renderFolders() {
   if (!folder) {
     els.foldersEmpty.hidden = list.length > 0;
     els.foldersPrintAll.hidden = list.length === 0;
+    const listed = applyListFilter('folders', list, (items, q) => filterFolders(items, q, folderCities));
     els.foldersList.replaceChildren(
-      ...list.map((f) => folderRow(f, folderCities(f).length, { onOpen: (id) => openFolder(id) }))
+      ...listed.map((f) =>
+        folderRow(f, folderCities(f).length, {
+          onOpen: (id) => openFolder(id),
+          onDelete: (id) => askDeleteFolder(id),
+          confirm: state.confirmDelete === f.id ? folderDeleteConfirm(f) : null,
+        })
+      )
     );
     mapView.hideFavorites();
     return [];
   }
   els.folderTitle.textContent = folder.nom;
+  const confirming = state.confirmDelete === folder.id;
+  els.folderDelete.hidden = confirming;
+  els.folderDeleteConfirm.hidden = !confirming;
+  if (!confirming) els.folderDeleteConfirm.replaceChildren();
+  else if (!els.folderDeleteConfirm.firstChild) els.folderDeleteConfirm.replaceChildren(folderDeleteConfirm(folder));
   if (!state.editingBrief) {
     els.briefForm.hidden = true;
     els.briefView.hidden = false;
@@ -1259,10 +1310,16 @@ function renderFolders() {
   }
   const allCities = folderCities(folder);
   renderStatusFilter(allCities);
-  const cities =
+  const byStatus =
     state.statusFilter === 'all'
       ? allCities
       : allCities.filter((c) => (c.statut ?? 'aucun') === state.statusFilter);
+  const cities = applyListFilter(
+    'folder-cities',
+    byStatus,
+    (items, q) => filterSavedCities(items, q, data ?? {}),
+    allCities.length
+  );
   els.folderEmpty.hidden = allCities.length > 0;
   els.folderRoute.disabled = allCities.length === 0;
   els.folderPrint.disabled = allCities.length === 0;
@@ -1510,6 +1567,8 @@ els.folderRoute.addEventListener('click', () => {
 
 function openFolder(id) {
   state.openFolder = id;
+  state.confirmDelete = null;
+  clearListFilter('folder-cities');
   els.folderRenameForm.hidden = true;
   const communes = renderFolders();
   if (communes.length) mapView.fitCommunes(communes);
@@ -1519,6 +1578,7 @@ function openFolder(id) {
 function closeFolder() {
   const id = state.openFolder;
   state.openFolder = null;
+  state.confirmDelete = null;
   renderFolders();
   els.foldersList.querySelector(`li[data-id="${id}"] button`)?.focus({ preventScroll: true });
 }
@@ -1559,15 +1619,57 @@ els.folderRenameForm.addEventListener('submit', (e) => {
   els.folderTitle.focus({ preventScroll: true });
 });
 
-els.folderDelete.addEventListener('click', () => {
-  const folder = findFolder(folders, state.openFolder);
-  if (!folder) return;
-  if (!window.confirm(`Supprimer le dossier « ${folder.nom} » et ses notes ?`)) return;
-  folders = deleteFolder(folders, folder.id);
+function folderDeleteConfirm(folder) {
+  const n = folderCities(folder).length;
+  const what = n ? ` Ses ${n > 1 ? `${n} communes` : 'commune'}, notes et fiche client seront effacées.` : '';
+  return deleteConfirm(`Supprimer le dossier «${NBSP}${folder.nom}${NBSP}»${NBSP}?${what}`, {
+    onConfirm: () => removeFolder(folder.id),
+    onCancel: () => cancelDeleteFolder(),
+  });
+}
+
+/** Premier clic sur « Supprimer » : affiche la confirmation (focus sur Annuler). */
+function askDeleteFolder(id) {
+  state.confirmDelete = id;
+  renderFolders();
+  const box = state.openFolder ? els.folderDeleteConfirm : els.foldersList.querySelector(`li[data-id="${id}"]`);
+  box?.querySelector('.btn-secondary')?.focus({ preventScroll: true });
+  box?.scrollIntoView({ block: 'nearest' });
+}
+
+function cancelDeleteFolder() {
+  const id = state.confirmDelete;
+  state.confirmDelete = null;
+  renderFolders();
+  const back = state.openFolder ? els.folderDelete : els.foldersList.querySelector(`li[data-id="${id}"] .star-btn`);
+  back?.focus({ preventScroll: true });
+}
+
+/** Supprime le dossier (confirmé), depuis la liste ou le dossier ouvert. */
+function removeFolder(id) {
+  if (!findFolder(folders, id)) return;
+  // Le focus passe à la ligne suivante (ou au champ de création)
+  const ids = visibleFolders(folders).map((f) => f.id);
+  const next = ids[ids.indexOf(id) + 1] ?? ids[ids.indexOf(id) - 1];
+  folders = deleteFolder(folders, id);
   saveFavorites();
-  closeFolder();
+  state.openFolder = null;
+  state.confirmDelete = null;
+  renderFolders();
+  renderList();
+  const row = next && els.foldersList.querySelector(`li[data-id="${next}"] button`);
+  (row || els.folderName).focus({ preventScroll: true });
+}
+
+els.folderDelete.addEventListener('click', () => askDeleteFolder(state.openFolder));
+
+listFilters.results.input.addEventListener('input', () => {
+  state.shown = LIST_PAGE_SIZE;
   renderList();
 });
+listFilters.favorites.input.addEventListener('input', () => renderFavorites());
+listFilters.folders.input.addEventListener('input', () => renderFolders());
+listFilters['folder-cities'].input.addEventListener('input', () => renderFolders());
 
 // ---- Fenêtre « Ranger dans un dossier » ------------------------------------
 

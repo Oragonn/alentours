@@ -476,16 +476,53 @@ export function briefCard(brief) {
 }
 
 /** Ligne de la liste des dossiers */
-export function folderRow(folder, count, { onOpen }) {
+/** Confirmation de suppression dans la page (Échap = annuler) */
+export function deleteConfirm(message, { onConfirm, onCancel }) {
+  return h(
+    'div',
+    {
+      class: 'delete-confirm',
+      role: 'group',
+      'aria-label': 'Confirmer la suppression',
+      onkeydown: (e) => {
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        e.stopPropagation();
+        onCancel();
+      },
+    },
+    h('p', {}, message),
+    h(
+      'div',
+      { class: 'actions' },
+      h('button', { type: 'button', class: 'btn btn-danger', onclick: onConfirm }, 'Supprimer'),
+      h('button', { type: 'button', class: 'btn btn-secondary', onclick: onCancel }, 'Annuler')
+    )
+  );
+}
+
+export function folderRow(folder, count, { onOpen, onDelete, confirm = null }) {
+  if (confirm) return h('li', { dataset: { id: folder.id } }, confirm);
   return h(
     'li',
-    { dataset: { id: folder.id } },
+    { dataset: { id: folder.id }, class: 'folder-line' },
     h(
       'button',
       { type: 'button', class: 'result folder-row', onclick: () => onOpen(folder.id) },
       h('span', { class: 'r-name' }, folderIcon(true), ' ', folder.nom),
       h('span', { class: 'r-meta' }, count ? `${count} commune${count > 1 ? 's' : ''}` : 'Vide'),
       h('span', { class: 'folder-chevron', 'aria-hidden': 'true' }, '›')
+    ),
+    h(
+      'button',
+      {
+        type: 'button',
+        class: 'star-btn',
+        'aria-label': `Supprimer le dossier : ${folder.nom}`,
+        title: 'Supprimer le dossier',
+        onclick: () => onDelete(folder.id),
+      },
+      '✕'
     )
   );
 }
